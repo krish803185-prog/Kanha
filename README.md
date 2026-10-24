@@ -1,14 +1,15 @@
 # Project: KANHA // Gesture-Driven Spatial Maritime Operating System
 
 ## Role & Objective
-You are a Principal 3D WebGL Architect and Maritime Systems Engineer with direct read/write access to the `KANHA` repository. Your objective is to architect and build **KANHA** , a complete, production-ready **Gesture-Driven Spatial Maritime Operating System** using a modular 22-file Vite + Three.js + WebSocket architecture. Never output placeholder pseudocode or stub functions.
+You are a Principal 3D WebGL Architect and Maritime Systems Engineer with direct read/write access to the `kanha` repository. Your objective is to architect and build **KANHA**, a complete, production-ready **Gesture-Driven Spatial Maritime Operating System** using a modular 24-file Vite + Three.js + WebSocket architecture. Never output placeholder pseudocode or stub functions.
 
-- **Central Branding Config:** Define a top-level constant `SYSTEM_CONFIG` in `src/core/NexusStateCore.js` with `osName: "KANHA // SPATIAL OS"`, `architect: "KRISHNA"`, and `fleetDesignation: "ORBITAL FLEET"` so the system title can be updated globally from a single variable at any time.
+- **Central Branding Config:** Define a top-level constant `SYSTEM_CONFIG` in `src/core/NexusStateCore.js` with `osName: "KANHA // SPATIAL OS"`, `architectureVersion: "v1.0.0"`, and `fleetDesignation: "Agni ORBITAL FLEET"` so the system title and HUD headers are controlled globally from a single variable.
+- **Portable ZIP & Auto-Desktop-Shortcut Requirement:** Include `INSTALL_AND_CREATE_SHORTCUT.bat` and `LAUNCH_KANHA.bat` in the repository root so that when this repository is downloaded as a `.zip` file on any Windows machine (without Claude or VS Code), double-clicking `INSTALL_AND_CREATE_SHORTCUT.bat` automatically generates a **"KANHA Spatial OS"** shortcut on the user's Windows Desktop (via PowerShell/WScript.Shell), installs dependencies if missing, starts the servers, and launches the OS in borderless full-screen App Mode (`msedge --app` / `chrome --app`).
 
 ---
 
 ## 1. Visual & Holographic Shader Specifications (`src/shaders/`)
-Match the exact visual aesthetic of the reference image (`public/assets/reference-ui.jpg`):
+Match the exact visual aesthetic and professional UI layout of the reference image (`public/assets/reference-ui.jpg`):
 - **Aegis Tabletop Hologram Shader (`AegisHologramShader.js`):**
   - **Outer Hull:** Translucent dark-navy/cyan glass surface overlaid with a crisp, glowing cyan triangulated wireframe mesh (`#00f3ff`, additive blending, custom Fresnel rim lighting).
   - **Internal Cargo & Superstructure:** Semi-transparent glowing cyan volumetric blocks (e.g., stacked container bays and articulated gantry cranes) with subtle horizontal holographic scanlines.
@@ -29,7 +30,7 @@ Build a lightweight Node.js `ws` WebSocket relay (`gesture-service/neural-relay.
 
 ### B. Strict Spatial Hand-Sign Dictionary (`src/input/KineticClassifier.js`)
 Implement exact landmark heuristics for these 9 spatial gestures:
-1. **`INDEX_THUMB_PINCH` (Select / Click):** Thumb tip (LM 4) pinched to index tip (LM 8) -> Selects a ship on the globe, opens a Temporal HUD Gate, or selects a structural member.
+1. **`INDEX_THUMB_PINCH` (Select / Click):** Thumb tip (LM 4) pinched to index tip (LM 8) -> Selects a ship on the globe, opens the Master Report Gate, isolates a specific report sub-panel, or selects a structural member.
 2. **`CLOSED_FIST_DRAG` (Orbit / 3-Axis Rotate):** All 4 fingers curled into palm while moving -> Orbits the globe (Mode A), orbits the ship (Mode B), or rotates a floating Zero-G structural part in place around all 3 axes (Mode C).
 3. **`TWO_HAND_PINCH_SPREAD` (Zoom / Explode Layers):** Both hands pinching while moving apart/together -> Controls the exploded-view scalar $s \in [0.0, 2.0]$ in Mode C to separate ship layers.
 4. **`GAUNTLET_GRAB_HOLD` -> `OPEN_PALM_RELEASE` (Zero-G Move & Place):** Half-curled claw grip intersecting a 3D part in Mode C locks the part to the 3D holographic gauntlet. Opening the hand (`OPEN_PALM_RELEASE`) releases the part so it stays suspended stationary in **Zero-Gravity** at that exact 3D position and orientation.
@@ -44,7 +45,8 @@ Implement exact landmark heuristics for these 9 spatial gestures:
 ## 3. Core Operating Modes (`src/modes/`)
 
 ### Mode A: Hyperion Global Fleet Matrix (`src/modes/HyperionGlobeMatrix.js`)
-- **3D Holographic Globe:** Renders Earth with active shipping routes for the owner's 6 sci-fi designated fleet vessels:
+- **System Branding Header:** Display **"KANHA // SPATIAL OS"** prominently in the top-left HUD bar alongside fleet telemetry.
+- **3D Holographic Globe:** Renders Earth with active shipping routes for the owner's fleet (**KANHA ORBITAL FLEET**) consisting of 6 distinct vessels:
   1. **Container Ship:** `"KNH-01 // HYPERION NEXUS"` — Status: `LOADING` (Singapore Terminal, `1.26°N, 103.82°E`)
   2. **Oil Tanker (VLCC):** `"KNH-02 // TITAN VANGUARD"` — Status: `DISCHARGING` (Rotterdam Europort, `51.95°N, 4.14°E`)
   3. **Chemical Tanker:** `"KNH-03 // VALKYRIE ALCHEMIST"` — Status: `UNDERWAY` (Suez Approach, `29.92°N, 32.55°E` — **Active Pump Room Telemetry Fault**)
@@ -54,13 +56,17 @@ Implement exact landmark heuristics for these 9 spatial gestures:
 - **Floating Holographic Beacons:** Interactive CSS2D floating nameplates above each ship. Clicking a ship transitions smoothly to Mode B.
 - **5 NM Crimson Sentinel AIS Threat Detection:** Render nearby third-party traffic. Any target vessel within a **5 NM radius** of an owned vessel automatically renders as a glowing **red hologram** (`#ff0033`). Clicking the red ship displays its AIS threat dossier (MMSI, Callsign, SOG, COG, CPA, TCPA).
 
-### Mode B: Holocron Vessel Digital Twin (`src/modes/HolocronVesselTwin.js`)
+### Mode B: Holocron Vessel Digital Twin & Executive Telemetry Architecture (`src/modes/HolocronVesselTwin.js` & `src/simulation/OmniChronicleTelemetry.js`)
 Isolates the selected ship as a large tabletop-style hologram over an animated holographic water grid.
-- **4 Glowing Temporal Gates (Spatial Sci-Fi HUD Dossiers):** Floating translucent holographic windows surrounding the vessel. Clicking any gate opens its detailed specification telemetry:
-  1. *GATE-01 // BIOSPHERE & CII TELEMETRY:* Carbon Intensity Indicator rating (A–E), EEXI compliance, real-time FOC (mt/day), $\text{CO}_2$ curve.
-  2. *GATE-02 // QUANTUM YIELD LEDGER:* Annual vessel earnings ($), daily TCE rate, voyage OPEX breakdown.
-  3. *GATE-03 // PAYLOAD & VECTOR MANIFEST:* Cargo grade/properties, total weight, ullage/stowage factor, origin/destination, voyage legs.
-  4. *GATE-04 // COMMAND & CREW BIOMETRICS:* Officer & crew complement matrix, watchkeeping rotation, STCW endorsements.
+- **Progressive 3-Stage Report Hierarchy (Strict Mutual Exclusivity — No Screen Clutter):**
+  - **Stage 1 (Single Master Report Gate):** In the default Mode B view, display only **ONE single glowing Master Report Panel** (`OMNI-CHRONICLE // VESSEL DOSSIER`) floating cleanly near the vessel.
+  - **Stage 2 (Annual Global Port-to-Port Simulation + Individual Sub-Panel Fan-Out):** Clicking the single Master Report Panel hides the default Mode B controls, displays a sleek **12-Month Global Port-to-Port Voyage Simulation** (showing the vessel's historical track across every port visited that year with animated route arcs and port-call markers, matching the top-left world map aesthetic of `reference-ui.jpg`), and fans out **4 Individual Report Sub-Panels** (`01 // CII & EMISSIONS`, `02 // ANNUAL YIELD & OPEX`, `03 // CARGO & STABILITY`, `04 // CREW & WATCH MATRIX`).
+  - **Stage 3 (Isolated Individual Report View with Professional Animated Data):** Clicking **any one** of the 4 Individual Report Sub-Panels causes **all other report panels to immediately disappear/fade out**, expanding the selected panel into a high-precision, executive-grade telemetry view. **Do NOT render static plain text or childish cartoon animations**; showcase the numbers and specifications using sleek, engineering-grade data animations matching the HUD corners of `reference-ui.jpg`:
+    1. *01 // CII & BIOSPHERE TELEMETRY:* Animated radial ring gauges that sweep smoothly to the vessel's AER / CII rating (A–E), counting-up odometer counters for EEXI (`gCO2/t·nm`) and real-time FOC (`mt/day`), and a self-drawing SVG spline curve comparing actual vs. IMO regulatory carbon trajectory across the year's voyages.
+    2. *02 // QUANTUM YIELD LEDGER (ANNUAL EARNINGS):* High-speed rolling numerical counters for YTD Net Revenue (`$`), Daily TCE Rate (`$/day`), and Running OPEX; paired with an animated multi-column histogram (matching the bottom-left bar charts in `reference-ui.jpg`) where monthly voyage profit vs. bunker cost bars smoothly animate upward with interactive hover readouts per port leg.
+    3. *03 // PAYLOAD, STOWAGE & HYDROSTATIC SPECS:* Animated digital progress bars and tank/bay fill-level matrices that smoothly interpolate to the current cargo weight (`MT`), stowage factor, ullage/sounding tables, Draft (Fwd/Mid/Aft), Trim, $GM_0$, and a live-drawing Shear Force & Bending Moment (SF/BM) percentage curve.
+    4. *04 // COMMAND & CREW BIOMETRICS:* Animated tabular telemetry matrix with staggered row-reveal animations, pulsing live watch-duty status indicators (00-04, 04-08, 08-12), radial officer certification compliance rings, and department readiness percentages.
+    *(Include a clean `"< Back to All Reports"` button inside Stage 3 to return to Stage 2).*
 - **Dynamic Port & Cargo Infrastructure Holograms:**
   - *When Container Ship is `LOADING`:* Render animated port terminal with **Ship-to-Shore (STS) gantry cranes** actively cycling glowing cyan containers (matching `reference-ui.jpg`).
   - *When Oil, Chemical, or Gas Tanker is `LOADING`/`DISCHARGING`:* Render shore terminal manifold with articulated **Chicksan marine loading arms** connected to the ship's midship manifold.
@@ -106,35 +112,37 @@ Active within Mode B:
 
 ---
 
-## 6. Strict 22-File Sci-Fi Architecture & 4-Phase Execution Plan
-Build the `kanha` repository across these exact 22 files in 4 sequential phases:
+## 6. Strict 24-File Sci-Fi Architecture & 4-Phase Execution Plan
+Build the `kanha` repository across these exact 24 files in 4 sequential phases:
 
-### Phase 1: Core Nexus Engine, Quantum Shaders & Neural Input (10 Files)
+### Phase 1: Core Nexus Engine, Portable Desktop Shortcut Installers, Shaders & Input (11 Files)
 1. `package.json` (`three`, `vite`, `ws`, `concurrently`)
 2. `vite.config.js` (configured with `host: true` for LAN dual-webcam access)
-3. `index.html` (complete sci-fi HUD layout, mode switchers, Chronos VDR scrubber bar, Aether Hydro controls, Reconstruct Parts button, Valkyrie CAD tree sidebar)
-4. `src/style.css` (sci-fi cyan glassmorphic styling matching `reference-ui.jpg`)
-5. `src/main.js` (system bootstrapper & 60 FPS render loop)
-6. `src/core/NexusStateCore.js` (central `SYSTEM_CONFIG` + state machine managing Mode A, Mode B, Mode C transitions)
-7. `src/shaders/AegisHologramShader.js` (cyan wireframe, Fresnel rim glow, scanlines, crimson `#ff0033` fault pulse)
-8. `src/shaders/QuantumDissolveShader.js` (flick-to-particles disintegration & quantum reformation)
-9. `src/input/NeuralInputBridge.js` (WebSocket gesture consumer + complete mouse/keyboard/UI fallback)
-10. `src/input/KineticClassifier.js` (landmark math for all 9 spatial hand gestures)
+3. `INSTALL_AND_CREATE_SHORTCUT.bat` (Windows one-click setup script for downloaded GitHub ZIPs: automatically creates a `"KANHA Spatial OS"` shortcut on the user's Desktop pointing to `LAUNCH_KANHA.bat`, runs `npm install` if `node_modules` is missing, and boots the app)
+4. `LAUNCH_KANHA.bat` (starts Vite + Neural WebSocket Relay and launches `http://localhost:5173` in borderless `--app` mode)
+5. `index.html` (complete sci-fi HUD layout, mode switchers, Single Master Report Gate, 4 mutually-exclusive Report Sub-Panel containers, Chronos VDR scrubber bar, Aether Hydro controls, Reconstruct Parts button, Valkyrie CAD tree sidebar)
+6. `src/style.css` (sci-fi cyan glassmorphic styling, animated SVG gauges, histograms, and telemetry counters matching `reference-ui.jpg`)
+7. `src/main.js` (system bootstrapper & 60 FPS render loop)
+8. `src/core/NexusStateCore.js` (central `SYSTEM_CONFIG` + state machine managing Mode A, Mode B, Mode C transitions)
+9. `src/shaders/AegisHologramShader.js` (cyan wireframe, Fresnel rim glow, scanlines, crimson `#ff0033` fault pulse)
+10. `src/shaders/QuantumDissolveShader.js` (flick-to-particles disintegration & quantum reformation)
+11. `src/input/NeuralInputBridge.js` & `src/input/KineticClassifier.js` (WebSocket gesture consumer, mouse/UI fallback, and 9-gesture landmark math)
 
 ### Phase 2: Fleet Codex, Forge CAD Builder & Mode A Hyperion Globe (3 Files)
-11. `src/vessels/ArmadaCodexSchema.js` (complete telemetry for all 6 vessels, 4 Temporal Gate dossiers, and Tier-1/Tier-2 2nd-Mate structural part trees with technical descriptions)
-12. `src/vessels/ForgeShipConstructor.js` (builds detailed multi-part Three.js hierarchical meshes for all 6 ship types + STS Gantry Cranes + Chicksan Loading Arms)
-13. `src/modes/HyperionGlobeMatrix.js` (Mode A 3D holographic globe, 6 moving fleet vessels, CSS2D beacons, and 5 NM Crimson Sentinel AIS threat vessels)
+12. `src/vessels/ArmadaCodexSchema.js` (complete telemetry for all 6 vessels, full 12-month historical port-to-port voyage coordinates for the Annual Voyage Simulation, and Tier-1/Tier-2 2nd-Mate structural part trees with technical descriptions)
+13. `src/vessels/ForgeShipConstructor.js` (builds detailed multi-part Three.js hierarchical meshes for all 6 ship types + STS Gantry Cranes + Chicksan Loading Arms)
+14. `src/modes/HyperionGlobeMatrix.js` (Mode A 3D holographic globe, 6 moving fleet vessels, CSS2D beacons, and 5 NM Crimson Sentinel AIS threat vessels)
 
-### Phase 3: Mode B Holocron Twin, Chronos VDR & Aether Hydro Sculptor (3 Files)
-14. `src/modes/HolocronVesselTwin.js` (Mode B tabletop ship hologram, 4 clickable Temporal HUD Gates, STS Gantry / Chicksan animations, Astrometric Night Sky dome, and crimson fault highlighting)
-15. `src/simulation/AetherHydroSculptor.js` (qualitative hydrodynamics: speed squat, palm-push shoaling UKC squat, arm-sweep 4-kt current + 35-kt squall, crab angle, leeway, wind heel, and autopilot rudder counter-response)
-16. `src/simulation/ChronosVDRLedger.js` (Mode B 3D Bridge Decision Ledger time scrubber visualizing helm orders, ROT arcs, and environmental drift vectors)
+### Phase 3: Mode B Holocron Twin, Executive Animated Telemetry, Chronos VDR & Aether Hydro (4 Files)
+15. `src/modes/HolocronVesselTwin.js` (Mode B tabletop ship hologram, Single Master Report Gate, STS Gantry / Chicksan animations, Astrometric Night Sky dome, and crimson fault highlighting)
+16. `src/simulation/OmniChronicleTelemetry.js` (implements the 3-Stage Report Hierarchy: Stage 1 Single Master Gate -> Stage 2 12-Month Global Port-to-Port Voyage Simulation + 4 Sub-Panels -> Stage 3 Mutually-Exclusive Detailed Report View where all other panels vanish and numbers animate via precision odometer counters, radial SVG ring gauges, self-drawing spline curves, and animated histograms matching `reference-ui.jpg`)
+17. `src/simulation/AetherHydroSculptor.js` (qualitative hydrodynamics: speed squat, palm-push shoaling UKC squat, arm-sweep 4-kt current + 35-kt squall, crab angle, leeway, wind heel, and autopilot rudder counter-response)
+18. `src/simulation/ChronosVDRLedger.js` (Mode B 3D Bridge Decision Ledger time scrubber visualizing helm orders, ROT arcs, and environmental drift vectors)
 
 ### Phase 4: Mode C Valkyrie Gauntlet, Graviton Zero-G & Dual-Optic Relay (5 Files + Asset)
-17. `src/modes/ValkyrieGauntletCAD.js` (Mode C isolated ship hologram, 3D articulated cyber-gauntlets, Tier-1/Tier-2 part tree inspector, exploded-view vector math, and flick-to-particles trigger)
-18. `src/simulation/GravitonZeroGEngine.js` (Zero-G floating object grab, 3-axis rotation, stationary spatial suspension on release, and snap-back reconstruction)
-19. `gesture-service/neural-relay.js` (Node.js WebSocket relay fusing Primary X/Y and Secondary Z-depth optic streams)
-20. `gesture-service/optic-primary.html` (Front webcam MediaPipe hand tracker UI)
-21. `gesture-service/optic-depth.html` (Side webcam MediaPipe Z-depth tracker UI for phone/second laptop)
-22. `public/assets/reference-ui.jpg` (Reference aesthetic image provided by user)
+19. `src/modes/ValkyrieGauntletCAD.js` (Mode C isolated ship hologram, 3D articulated cyber-gauntlets, Tier-1/Tier-2 part tree inspector, exploded-view vector math, and flick-to-particles trigger)
+20. `src/simulation/GravitonZeroGEngine.js` (Zero-G floating object grab, 3-axis rotation, stationary spatial suspension on release, and snap-back reconstruction)
+21. `gesture-service/neural-relay.js` (Node.js WebSocket relay fusing Primary X/Y and Secondary Z-depth optic streams)
+22. `gesture-service/optic-primary.html` (Front webcam MediaPipe hand tracker UI)
+23. `gesture-service/optic-depth.html` (Side webcam MediaPipe Z-depth tracker UI for phone/second laptop)
+24. `public/assets/reference-ui.jpg` (Reference aesthetic image provided by user)
