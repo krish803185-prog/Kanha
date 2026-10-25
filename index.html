@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#01060d" />
+  <title>KANHA // SPATIAL OS</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='6' y='6' width='20' height='20' transform='rotate(45 16 16)' fill='none' stroke='%2300f3ff' stroke-width='2.5'/%3E%3Crect x='12' y='12' width='8' height='8' transform='rotate(45 16 16)' fill='%2300f3ff'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;600&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body data-mode="boot" data-report-stage="1" data-interior="false">
+  <!-- ============================== BOOT ============================== -->
+  <div id="boot-splash" class="boot">
+    <div class="boot__core">
+      <div class="boot__ring"></div>
+      <div class="boot__ring boot__ring--inner"></div>
+      <h1 class="boot__title" data-sys="osName">KANHA // SPATIAL OS</h1>
+      <p class="boot__sub"><span data-sys="fleetDesignation">Agni ORBITAL FLEET</span> · <span data-sys="architectureVersion">v1.0.0</span></p>
+      <div class="boot__log" id="boot-log"></div>
+    </div>
+  </div>
+
+  <!-- ============================ VIEWPORT ============================ -->
+  <main id="viewport" aria-label="3D spatial viewport"></main>
+
+  <!-- ============================ TOP BAR ============================= -->
+  <header id="hud-topbar" class="topbar">
+    <div class="topbar__brand">
+      <div class="topbar__glyph" aria-hidden="true"></div>
+      <div>
+        <div class="topbar__os" data-sys="osName">KANHA // SPATIAL OS</div>
+        <div class="topbar__meta"><span data-sys="fleetDesignation">Agni ORBITAL FLEET</span> · ARCH <span data-sys="architectureVersion">v1.0.0</span></div>
+      </div>
+    </div>
+
+    <nav class="topbar__modes" aria-label="Operating modes">
+      <button class="mode-tab" data-mode-target="A"><b>A</b> HYPERION MATRIX</button>
+      <button class="mode-tab" data-mode-target="B"><b>B</b> HOLOCRON TWIN</button>
+      <button class="mode-tab" data-mode-target="C"><b>C</b> VALKYRIE CAD</button>
+    </nav>
+
+    <div class="topbar__telemetry">
+      <div class="tchip"><span class="tchip__k">FLEET</span><span class="tchip__v" id="tm-fleet">6 HULLS</span></div>
+      <div class="tchip"><span class="tchip__k">AIS THREATS</span><span class="tchip__v tchip__v--crimson" id="tm-threats">0</span></div>
+      <div class="tchip"><span class="tchip__k">UTC</span><span class="tchip__v" id="tm-clock">--:--:--</span></div>
+      <div class="tchip"><span class="tchip__k">FPS</span><span class="tchip__v" id="tm-fps">--</span></div>
+    </div>
+
+    <div class="topbar__sensors">
+      <button class="sensor" id="sensor-relay" title="Neural WebSocket Relay :8081"><i></i>RELAY</button>
+      <button class="sensor" id="sensor-primary" title="Open Primary Optic Sensor (front webcam)"><i></i>OPTIC-1 X/Y</button>
+      <button class="sensor" id="sensor-depth" title="Secondary depth optic (phone / 2nd laptop)"><i></i>OPTIC-2 Z</button>
+      <button class="icon-btn" id="btn-help" title="Gesture &amp; control reference">?</button>
+    </div>
+  </header>
+
+  <!-- ===================== MODE A — HYPERION MATRIX ==================== -->
+  <aside id="fleet-panel" class="panel panel--left" data-modes="A">
+    <div class="panel__head">
+      <span class="panel__tag">A-01</span>
+      <h2>FLEET REGISTRY</h2>
+    </div>
+    <div class="panel__sub" data-sys="fleetDesignation">Agni ORBITAL FLEET</div>
+    <ul id="fleet-list" class="fleet-list"></ul>
+    <div class="legend">
+      <div><i class="legend__dot legend__dot--cyan"></i>Owned hull</div>
+      <div><i class="legend__dot legend__dot--dim"></i>AIS traffic &gt; 5 NM</div>
+      <div><i class="legend__dot legend__dot--crimson"></i>Crimson Sentinel &lt; 5 NM</div>
+    </div>
+    <p class="hint">Pinch / click a vessel to open its Holocron twin. Fist-drag / drag to orbit.</p>
+  </aside>
+
+  <aside id="ais-dossier" class="panel panel--right panel--crimson is-hidden" data-modes="A" aria-live="polite">
+    <div class="panel__head">
+      <span class="panel__tag panel__tag--crimson">AIS</span>
+      <h2>THREAT DOSSIER</h2>
+      <button class="icon-btn" data-close="ais-dossier" aria-label="Close">×</button>
+    </div>
+    <div id="ais-dossier-body"></div>
+  </aside>
+
+  <!-- ===================== MODE B — HOLOCRON TWIN ===================== -->
+  <aside id="twin-panel" class="panel panel--left" data-modes="B" data-report-stages="1">
+    <div class="panel__head">
+      <span class="panel__tag">B-01</span>
+      <h2 id="twin-title">VESSEL</h2>
+    </div>
+    <div id="twin-particulars" class="kv-grid"></div>
+    <div class="btn-stack">
+      <button class="btn" id="btn-back-globe">◄ Back to Fleet Matrix</button>
+      <button class="btn btn--primary" id="btn-engage-cad">Engage Valkyrie Gauntlet CAD</button>
+      <button class="btn" id="btn-render-b" aria-pressed="false" data-render-toggle>Realistic Colour Render</button>
+      <button class="btn" id="btn-night-sky" aria-pressed="false">Astrometric Night Sky Dome</button>
+      <button class="btn btn--crimson" id="btn-trigger-fault">Trigger Structural Fault</button>
+      <button class="btn" id="btn-clear-fault">Clear Fault Overrides</button>
+    </div>
+    <div id="twin-fault-readout" class="fault-readout"></div>
+  </aside>
+
+  <aside id="aether-panel" class="panel panel--right" data-modes="B" data-report-stages="1">
+    <div class="panel__head">
+      <span class="panel__tag">B-02</span>
+      <h2>AETHER HYDRO SCULPTOR</h2>
+    </div>
+    <label class="slider">
+      <span>Vessel speed <b id="ae-speed-v">12.0 kt</b></span>
+      <input type="range" id="ae-speed" min="0" max="22" step="0.5" value="12" />
+    </label>
+    <label class="slider">
+      <span>Seabed depth <b id="ae-depth-v">40.0 m</b></span>
+      <input type="range" id="ae-depth" min="0" max="60" step="0.1" value="40" />
+    </label>
+    <div class="btn-row">
+      <button class="btn btn--amber" id="ae-squall-stbd">Squall from STBD</button>
+      <button class="btn btn--amber" id="ae-squall-port">Squall from PORT</button>
+      <button class="btn" id="ae-calm">Calm</button>
+    </div>
+    <div class="aether-readout" id="aether-readout"></div>
+    <p class="hint">Flat-palm push down = shoaling · Lateral arm sweep = 4-kt current + 35-kt squall · Keys: P, [ ]</p>
+  </aside>
+
+  <!-- 3-Stage Omni-Chronicle report hierarchy (Stage 1 gate is a CSS2D panel in 3D space) -->
+  <section id="report-stage2" class="report-stage2" data-modes="B" data-report-stages="2" aria-label="Annual voyage simulation">
+    <div class="report-stage2__map panel">
+      <div class="panel__head">
+        <span class="panel__tag">OMNI</span>
+        <h2>12-MONTH GLOBAL PORT-TO-PORT VOYAGE SIMULATION</h2>
+        <button class="btn btn--sm" id="btn-close-dossier-2">Close Dossier</button>
+      </div>
+      <div id="voyage-map" class="voyage-map"></div>
+      <div id="voyage-ledger" class="voyage-ledger"></div>
+    </div>
+    <div id="report-subpanels" class="report-subpanels"></div>
+  </section>
+
+  <section id="report-stage3" class="report-stage3 panel" data-modes="B" data-report-stages="3" aria-label="Detailed report">
+    <div class="panel__head">
+      <button class="btn btn--sm" id="btn-back-reports">&lt; Back to All Reports</button>
+      <h2 id="report-stage3-title">REPORT</h2>
+      <button class="btn btn--sm" id="btn-close-dossier-3">Close Dossier</button>
+    </div>
+    <div id="report-stage3-body" class="report-stage3__body"></div>
+  </section>
+
+  <!-- Chronos VDR scrubber -->
+  <footer id="chronos-bar" class="chronos" data-modes="B" data-report-stages="1">
+    <div class="chronos__head">
+      <span class="panel__tag">VDR</span>
+      <b>CHRONOS 3D BRIDGE DECISION LEDGER</b>
+      <span id="chronos-scenario" class="chronos__scenario"></span>
+    </div>
+    <div class="chronos__row">
+      <button class="icon-btn" id="chronos-play" aria-label="Play / pause">▶</button>
+      <div class="chronos__track">
+        <input type="range" id="chronos-scrub" min="0" max="1" step="0.00005" value="1" aria-label="VDR timeline, last 4 hours" />
+        <div class="chronos__scale"><span>T−4h</span><span>T−3h</span><span>T−2h</span><span>T−1h</span><span>NOW</span></div>
+      </div>
+      <span id="chronos-time" class="chronos__time">NOW</span>
+      <div class="chronos__btns">
+        <button class="btn btn--sm" id="chronos-speed" title="Replay speed">30×</button>
+        <button class="btn btn--sm" id="chronos-event" title="Jump to the near-miss">◆ Incident</button>
+        <button class="btn btn--sm" id="chronos-now" title="Back to the present">NOW</button>
+        <button class="btn btn--sm" id="chronos-toggle" aria-pressed="true">3D Ledger ON</button>
+      </div>
+    </div>
+    <div id="chronos-ledger" class="chronos__ledger"></div>
+  </footer>
+
+  <!-- ===================== MODE C — VALKYRIE CAD ====================== -->
+  <aside id="cad-sidebar" class="panel panel--left panel--tall" data-modes="C">
+    <div class="panel__head">
+      <span class="panel__tag">C-01</span>
+      <h2>PART TREE</h2>
+    </div>
+    <div class="panel__sub" id="cad-vessel-name"></div>
+    <div id="cad-tree" class="cad-tree" role="tree"></div>
+  </aside>
+
+  <aside id="cad-tools" class="panel panel--right panel--tall" data-modes="C">
+    <div class="panel__head">
+      <span class="panel__tag">C-02</span>
+      <h2>GAUNTLET TOOLS</h2>
+    </div>
+    <label class="slider">
+      <span>Exploded view <i>s</i> <b id="cad-explode-v">0.00</b></span>
+      <input type="range" id="cad-explode" min="0" max="2" step="0.01" value="0" />
+    </label>
+    <div class="clip-group">
+      <div class="clip-group__title">3D SECTION CLIPPING PLANES</div>
+      <label class="slider slider--clip"><input type="checkbox" id="clip-x-on" /><span>X <b id="clip-x-v">off</b></span><input type="range" id="clip-x" min="-1" max="1" step="0.005" value="1" /></label>
+      <label class="slider slider--clip"><input type="checkbox" id="clip-y-on" /><span>Y <b id="clip-y-v">off</b></span><input type="range" id="clip-y" min="-1" max="1" step="0.005" value="1" /></label>
+      <label class="slider slider--clip"><input type="checkbox" id="clip-z-on" /><span>Z <b id="clip-z-v">off</b></span><input type="range" id="clip-z" min="-1" max="1" step="0.005" value="1" /></label>
+    </div>
+    <div class="btn-stack">
+      <button class="btn" id="btn-free-look" aria-pressed="false" title="Lock all parts so touch, gestures and mouse only move the camera (key L)">Free-Look: Parts Locked</button>
+      <button class="btn" id="btn-render-c" aria-pressed="false" data-render-toggle>Realistic Colour Render</button>
+      <button class="btn btn--primary" id="btn-reconstruct">Reconstruct All Parts</button>
+      <button class="btn" id="btn-inspect-interior">Inspect Compartment Interior</button>
+      <button class="btn" id="btn-exit-interior">Exit Compartment Interior</button>
+      <button class="btn" id="btn-exit-cad">◄ Disengage CAD (Mode B)</button>
+    </div>
+    <div class="clip-group__title">INTERIOR QUICK-JUMP</div>
+    <div id="cad-interior-jumps" class="jump-list"></div>
+  </aside>
+
+  <aside id="cad-inspector" class="panel panel--inspector is-hidden" data-modes="C" aria-live="polite">
+    <div class="panel__head">
+      <span class="panel__tag">META</span>
+      <h2 id="cad-inspector-title">PART</h2>
+      <button class="icon-btn" data-close="cad-inspector" aria-label="Close">×</button>
+    </div>
+    <div id="cad-inspector-body"></div>
+  </aside>
+
+  <div id="cad-interior-banner" class="interior-banner" data-modes="C">
+    <span class="interior-banner__dot"></span>
+    <span id="cad-interior-label">INTERIOR</span>
+  </div>
+
+  <div id="free-look-badge" class="free-look-badge" data-modes="C">🔒 FREE-LOOK · PARTS LOCKED — hands &amp; mouse move the camera only (L to unlock)</div>
+
+  <!-- =========================== GLOBAL =============================== -->
+  <div id="victory-ring" class="victory-ring" aria-hidden="true">
+    <svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="26" class="victory-ring__track" /><circle cx="32" cy="32" r="26" class="victory-ring__fill" id="victory-ring-fill" /></svg>
+    <span>✌</span>
+  </div>
+
+  <div id="gesture-feed" class="gesture-feed" aria-live="polite"></div>
+  <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+  <div id="mode-banner" class="mode-banner"></div>
+
+  <dialog id="help-dialog" class="help">
+    <div class="panel__head">
+      <span class="panel__tag">SYS</span>
+      <h2>SPATIAL HAND-SIGN DICTIONARY &amp; FALLBACKS</h2>
+      <button class="icon-btn" data-close-dialog aria-label="Close">×</button>
+    </div>
+    <table class="help__table">
+      <thead><tr><th>#</th><th>Gesture</th><th>Action</th><th>Mouse / Keyboard</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>INDEX_THUMB_PINCH</td><td>Select ship / panel / member</td><td>Click</td></tr>
+        <tr><td>2</td><td>CLOSED_FIST_DRAG</td><td>Orbit globe / ship · rotate Zero-G part · 360° interior look</td><td>Drag empty space · Alt + drag part</td></tr>
+        <tr><td>3</td><td>TWO_HAND_PINCH_SPREAD</td><td>Zoom · exploded-view scalar s ∈ [0, 2]</td><td>Wheel · Ctrl + wheel</td></tr>
+        <tr><td>4</td><td>TWO_HAND_FORWARD_PULL</td><td>Fly inside selected tank / hold / room</td><td>Double-click · wheel-dive · Inspect button</td></tr>
+        <tr><td>5</td><td>GAUNTLET_GRAB_HOLD → OPEN_PALM_RELEASE</td><td>Zero-G grab, move &amp; suspend</td><td>Drag a part, release</td></tr>
+        <tr><td>6</td><td>INDEX_FINGER_FLICK</td><td>Disintegrate part into particles</td><td>Shift + click / Shift + drag</td></tr>
+        <tr><td>7</td><td>VICTORY_PEACE_HOLD (1 s)</td><td>Reconstruct parts / exit interior</td><td>Hold V · Reconstruct button</td></tr>
+        <tr><td>8</td><td>FLAT_PALM_PUSH_DOWN</td><td>Shoaling: raise seabed, reduce UKC, squat</td><td>P · Seabed slider</td></tr>
+        <tr><td>9</td><td>LATERAL_ARM_SWEEP</td><td>4-kt cross-current + 35-kt squall</td><td>[ / ] · Squall buttons</td></tr>
+        <tr><td>10</td><td>TWO_FINGER_HORIZONTAL_SCRUB</td><td>Chronos VDR scrub through the last 4 hours</td><td>Hold , / . · Timeline slider · ◆ Incident · NOW</td></tr>
+        <tr><td>—</td><td>FREE-LOOK (Mode C)</td><td>Lock all parts; gestures / touch / mouse only move the camera</td><td>L · Free-Look button</td></tr>
+        <tr><td>—</td><td>COLOUR RENDER (Modes B / C)</td><td>Switch hologram ↔ realistic colour ship render</td><td>Realistic Colour Render button</td></tr>
+      </tbody>
+    </table>
+    <div class="help__optics">
+      <div>
+        <h3>PRIMARY OPTIC (front, X/Y)</h3>
+        <p>Open on this machine: <a id="help-primary-link" href="/gesture-service/optic-primary.html" target="_blank" rel="noopener">/gesture-service/optic-primary.html</a></p>
+      </div>
+      <div>
+        <h3>SECONDARY OPTIC (side 45–90°, Z-depth)</h3>
+        <p>Phones need HTTPS for camera access: start with <code>npm run start:lan</code>, then open on the phone:</p>
+        <ul id="help-lan-links" class="help__links"><li>Waiting for relay…</li></ul>
+      </div>
+    </div>
+  </dialog>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

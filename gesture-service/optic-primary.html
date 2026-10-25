@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KANHA // Primary Optic (X/Y)</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='6' y='6' width='20' height='20' transform='rotate(45 16 16)' fill='none' stroke='%2300f3ff' stroke-width='2.5'/%3E%3C/svg%3E" />
+  <style>
+    :root { --cyan: #00f3ff; --crimson: #ff0033; --amber: #ffb300; --green: #31ff9c; --void: #01060d; --text: #cdefff; --dim: #6f97ab; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--void); color: var(--text); font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; }
+    header { display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-bottom: 1px solid rgba(0,243,255,.14); flex-wrap: wrap; }
+    h1 { margin: 0; font-size: 13px; letter-spacing: .22em; color: var(--cyan); text-shadow: 0 0 10px rgba(0,243,255,.6); }
+    .chip { font-size: 10px; letter-spacing: .12em; padding: 3px 8px; border: 1px solid rgba(0,243,255,.2); color: var(--dim); display: flex; align-items: center; gap: 6px; }
+    .chip i { width: 7px; height: 7px; border-radius: 50%; background: #34505e; }
+    .chip.on { color: var(--text); } .chip.on i { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .chip.wait i { background: var(--amber); }
+    select, button { font: inherit; font-size: 11px; color: var(--text); background: rgba(0,243,255,.05); border: 1px solid rgba(0,243,255,.25); padding: 5px 9px; }
+    button { cursor: pointer; } button:hover { border-color: var(--cyan); }
+    button.primary { color: var(--cyan); border-color: var(--cyan); }
+    main { position: relative; height: calc(100% - 52px); display: grid; place-items: center; }
+    .stage { position: relative; width: min(96vw, 133vh - 70px); aspect-ratio: 4 / 3; border: 1px solid rgba(0,243,255,.14); }
+    video, canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    video { transform: scaleX(-1); opacity: .35; filter: saturate(0) brightness(.8) sepia(1) hue-rotate(140deg); }
+    .hud { position: absolute; left: 12px; bottom: 10px; font-size: 11px; line-height: 1.6; text-shadow: 0 0 4px #000; }
+    .hud b { color: var(--cyan); font-weight: 400; }
+    .msg { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; font-size: 12px; color: var(--dim); padding: 20px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>KANHA // PRIMARY OPTIC · X/Y PLANE</h1>
+    <span class="chip wait" id="chip-relay"><i></i>RELAY</span>
+    <span class="chip" id="chip-model"><i></i>MODEL</span>
+    <span class="chip" id="chip-fps"><i></i>-- FPS</span>
+    <select id="camera" aria-label="Camera"></select>
+    <button class="primary" id="start">Start Optic</button>
+  </header>
+  <main>
+    <div class="stage">
+      <video id="video" playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div class="msg" id="msg">Face the screen with this camera. Click <b>&nbsp;Start Optic&nbsp;</b> and allow camera access.<br />Hand landmarks are processed locally — only 21-point JSON is sent to the relay.</div>
+      <div class="hud" id="hud"></div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
+    import { KineticClassifier, HAND_BONES, describePose } from '/src/input/KineticClassifier.js';
+
+    const MP_VERSION = '1.1.1';
+    const MODEL_REMOTE = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task';
+    const $ = (s) => document.querySelector(s);
+    const video = $('#video');
+    const canvas = $('#overlay');
+    const g = canvas.getContext('2d');
+    const classifier = new KineticClassifier();
+    let landmarker = null;
+    let stream = null;
+    let running = false;
+    let ws = null;
+    let lastSend = 0;
+    let frames = 0;
+    let fpsT = performance.now();
+
+    async function exists(url) {
+      try {
+        const r = await fetch(url, { method: 'HEAD', cache: 'no-store' });
+        return r.ok && !(r.headers.get('content-type') ?? '').includes('text/html');
+      } catch {
+        return false;
+      }
+    }
+
+    /* ---------------- relay ---------------- */
+    function connect(direct = false) {
+      const url = direct ? `ws://${location.hostname}:8081` : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/neural`;
+      let opened = false;
+      ws = new WebSocket(url);
+      ws.onopen = () => {
+        opened = true;
+        ws.send(JSON.stringify({ type: 'hello', role: 'primary' }));
+        $('#chip-relay').className = 'chip on';
+      };
+      ws.onclose = () => {
+        $('#chip-relay').className = 'chip wait';
+        setTimeout(() => connect(opened ? direct : !direct), 1500);
+      };
+      ws.onerror = () => ws.close();
+    }
+    connect();
+
+    /* ---------------- camera ---------------- */
+    async function listCameras() {
+      const devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+      const sel = $('#camera');
+      const current = sel.value;
+      sel.innerHTML = devices.map((d, i) => `<option value="${d.deviceId}">${d.label || `Camera ${i + 1}`}</option>`).join('');
+      if (current) sel.value = current;
+    }
+
+    async function loadModel() {
+      if (landmarker) return landmarker;
+      $('#chip-model').className = 'chip wait';
+      const wasmBase = (await exists('/mediapipe-wasm/vision_wasm_internal.wasm')) ? '/mediapipe-wasm' : `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`;
+      const modelPath = (await exists('/models/hand_landmarker.task')) ? '/models/hand_landmarker.task' : MODEL_REMOTE;
+      const fileset = await FilesetResolver.forVisionTasks(wasmBase);
+      const opts = (delegate) => ({
+        baseOptions: { modelAssetPath: modelPath, delegate },
+        runningMode: 'VIDEO',
+        numHands: 2,
+        minHandDetectionConfidence: 0.6,
+        minHandPresenceConfidence: 0.6,
+        minTrackingConfidence: 0.5
+      });
+      try {
+        landmarker = await HandLandmarker.createFromOptions(fileset, opts('GPU'));
+      } catch {
+        landmarker = await HandLandmarker.createFromOptions(fileset, opts('CPU'));
+      }
+      $('#chip-model').className = 'chip on';
+      return landmarker;
+    }
+
+    async function start() {
+      if (running) return stop();
+      $('#msg').textContent = 'Loading hand-tracking model…';
+      try {
+        await loadModel();
+        const deviceId = $('#camera').value;
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: deviceId ? { exact: deviceId } : undefined, width: { ideal: 960 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+          audio: false
+        });
+        video.srcObject = stream;
+        await video.play();
+        await listCameras();
+        running = true;
+        $('#start').textContent = 'Stop Optic';
+        $('#msg').style.display = 'none';
+        loop();
+      } catch (err) {
+        $('#msg').style.display = '';
+        $('#msg').textContent = `Camera / model error: ${err.message}. On a phone or another PC use HTTPS ("npm run start:lan").`;
+      }
+    }
+
+    function stop() {
+      running = false;
+      stream?.getTracks().forEach((t) => t.stop());
+      $('#start').textContent = 'Start Optic';
+      $('#msg').style.display = '';
+      $('#msg').textContent = 'Optic stopped.';
+    }
+
+    /* ---------------- tracking loop ---------------- */
+    function loop() {
+      if (!running) return;
+      if (video.readyState >= 2) {
+        const now = performance.now();
+        const res = landmarker.detectForVideo(video, now);
+        // MediaPipe assumes a mirrored (selfie) image; this feed is unmirrored,
+        // so mirror x into "user space" and swap the handedness label.
+        const hands = (res.landmarks ?? []).map((lms, i) => {
+          const cat = (res.handedness ?? res.handednesses)?.[i]?.[0];
+          const label = cat?.categoryName === 'Left' ? 'Right' : 'Left';
+          return { handedness: label, score: cat?.score ?? 0, landmarks: lms.map((p) => ({ x: 1 - p.x, y: p.y, z: p.z })) };
+        });
+        const aspect = video.videoWidth / video.videoHeight || 4 / 3;
+        classifier.update(hands, now, aspect);
+        draw(hands);
+        if (ws?.readyState === WebSocket.OPEN && now - lastSend > 30) {
+          lastSend = now;
+          ws.send(JSON.stringify({ type: 'landmarks', hands, aspect, t: Date.now() }));
+        }
+        frames++;
+        if (now - fpsT > 500) {
+          $('#chip-fps').innerHTML = `<i></i>${Math.round((frames * 1000) / (now - fpsT))} FPS`;
+          $('#chip-fps').className = 'chip on';
+          frames = 0;
+          fpsT = now;
+        }
+      }
+      if ('requestVideoFrameCallback' in video) video.requestVideoFrameCallback(loop);
+      else requestAnimationFrame(loop);
+    }
+
+    function draw(hands) {
+      const w = (canvas.width = canvas.clientWidth * devicePixelRatio);
+      const h = (canvas.height = canvas.clientHeight * devicePixelRatio);
+      g.clearRect(0, 0, w, h);
+      const hud = [];
+      for (const hand of hands) {
+        const pose = classifier.tracks.get(hand.handedness)?.pose ?? 'none';
+        const color = pose === 'claw' ? '#ffb300' : pose === 'pinch' ? '#31ff9c' : '#00f3ff';
+        g.strokeStyle = color;
+        g.lineWidth = 2 * devicePixelRatio;
+        g.shadowColor = color;
+        g.shadowBlur = 10;
+        g.beginPath();
+        for (const [a, b] of HAND_BONES) {
+          g.moveTo(hand.landmarks[a].x * w, hand.landmarks[a].y * h);
+          g.lineTo(hand.landmarks[b].x * w, hand.landmarks[b].y * h);
+        }
+        g.stroke();
+        g.fillStyle = '#cdefff';
+        hand.landmarks.forEach((p, i) => {
+          g.beginPath();
+          g.arc(p.x * w, p.y * h, (i % 4 === 0 ? 4 : 2.5) * devicePixelRatio, 0, Math.PI * 2);
+          g.fill();
+        });
+        hud.push(`<b>${hand.handedness.toUpperCase()}</b> ${describePose(pose)} · ${(hand.score * 100).toFixed(0)}%`);
+      }
+      $('#hud').innerHTML = hud.join('<br>') || 'No hands in view';
+    }
+
+    $('#start').addEventListener('click', start);
+    navigator.mediaDevices?.addEventListener?.('devicechange', listCameras);
+    listCameras().catch(() => {});
+  </script>
+</body>
+</html>

@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#01060d" />
+  <title>KANHA // Depth Optic (Z)</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='6' y='6' width='20' height='20' transform='rotate(45 16 16)' fill='none' stroke='%2300f3ff' stroke-width='2.5'/%3E%3C/svg%3E" />
+  <style>
+    :root { --cyan: #00f3ff; --amber: #ffb300; --green: #31ff9c; --void: #01060d; --text: #cdefff; --dim: #6f97ab; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: var(--void); color: var(--text); font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace; }
+    header { padding: 12px 16px; border-bottom: 1px solid rgba(0,243,255,.14); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    h1 { margin: 0 12px 0 0; font-size: 12px; letter-spacing: .2em; color: var(--cyan); text-shadow: 0 0 10px rgba(0,243,255,.6); }
+    .chip { font-size: 10px; letter-spacing: .1em; padding: 3px 8px; border: 1px solid rgba(0,243,255,.2); color: var(--dim); display: flex; align-items: center; gap: 6px; }
+    .chip i { width: 7px; height: 7px; border-radius: 50%; background: #34505e; }
+    .chip.on { color: var(--text); } .chip.on i { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .chip.wait i { background: var(--amber); }
+    .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; padding: 12px 16px; }
+    select, button { font: inherit; font-size: 12px; color: var(--text); background: rgba(0,243,255,.05); border: 1px solid rgba(0,243,255,.25); padding: 10px; min-height: 44px; }
+    button { cursor: pointer; } button.primary { color: var(--cyan); border-color: var(--cyan); }
+    button.done { border-color: var(--green); color: var(--green); }
+    .stage { position: relative; margin: 0 16px; aspect-ratio: 4 / 3; border: 1px solid rgba(0,243,255,.14); overflow: hidden; }
+    video, canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    video { opacity: .35; filter: saturate(0) brightness(.8) sepia(1) hue-rotate(140deg); }
+    .reach { margin: 12px 16px; }
+    .reach__bar { height: 12px; border: 1px solid rgba(0,243,255,.25); position: relative; }
+    .reach__fill { position: absolute; inset: 0 auto 0 0; width: 0; background: repeating-linear-gradient(90deg, var(--cyan) 0 6px, transparent 6px 8px); box-shadow: 0 0 10px var(--cyan); transition: width .08s linear; }
+    .help { font-size: 11px; color: var(--dim); padding: 0 16px 20px; line-height: 1.6; }
+    .help b { color: var(--cyan); font-weight: 400; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>KANHA // DEPTH OPTIC · Z-REACH</h1>
+    <span class="chip wait" id="chip-relay"><i></i>RELAY</span>
+    <span class="chip" id="chip-model"><i></i>MODEL</span>
+    <span class="chip" id="chip-fps"><i></i>-- FPS</span>
+  </header>
+  <div class="controls">
+    <select id="camera" aria-label="Camera"></select>
+    <select id="mount" aria-label="Mounting side">
+      <option value="right">Mounted on my RIGHT</option>
+      <option value="left">Mounted on my LEFT</option>
+    </select>
+    <button class="primary" id="start">Start Depth Optic</button>
+    <button id="cal-near">Calibrate: hand at chest</button>
+    <button id="cal-far">Calibrate: arm extended</button>
+  </div>
+  <div class="stage">
+    <video id="video" playsinline muted></video>
+    <canvas id="overlay"></canvas>
+  </div>
+  <div class="reach">
+    <div style="font-size:11px;display:flex;justify-content:space-between;margin-bottom:6px"><span>REACH (Z-DEPTH)</span><b id="reach-v" style="color:var(--cyan);font-weight:400">—</b></div>
+    <div class="reach__bar"><div class="reach__fill" id="reach-fill"></div></div>
+  </div>
+  <div class="help">
+    Place this phone / second laptop <b>45°–90° to your side</b>, at shoulder height, so it sees your arm moving toward the screen.<br />
+    1. Start the optic. 2. Hold your hand at your chest and press <b>Calibrate: hand at chest</b>. 3. Extend your arm toward the screen and press <b>Calibrate: arm extended</b>.<br />
+    Only landmark JSON is sent to the relay (no video). Phones require HTTPS — start the OS with <b>npm run start:lan</b> and accept the local certificate.
+  </div>
+
+  <script type="module">
+    import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
+    import { HAND_BONES } from '/src/input/KineticClassifier.js';
+
+    const MP_VERSION = '1.1.1';
+    const MODEL_REMOTE = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task';
+    const CAL_KEY = 'kanha.depth.calibration';
+    const $ = (s) => document.querySelector(s);
+    const video = $('#video');
+    const canvas = $('#overlay');
+    const g = canvas.getContext('2d');
+    let landmarker = null;
+    let stream = null;
+    let running = false;
+    let ws = null;
+    let lastSend = 0;
+    let frames = 0;
+    let fpsT = performance.now();
+    let latestPalmX = null;
+    let cal = { near: null, far: null };
+    try {
+      cal = { ...cal, ...JSON.parse(localStorage.getItem(CAL_KEY) ?? '{}') };
+    } catch {
+      /* calibration is optional */
+    }
+    const saveCal = () => {
+      try {
+        localStorage.setItem(CAL_KEY, JSON.stringify(cal));
+      } catch {
+        /* private mode */
+      }
+      $('#cal-near').classList.toggle('done', cal.near !== null);
+      $('#cal-far').classList.toggle('done', cal.far !== null);
+    };
+    saveCal();
+
+    async function exists(url) {
+      try {
+        const r = await fetch(url, { method: 'HEAD', cache: 'no-store' });
+        return r.ok && !(r.headers.get('content-type') ?? '').includes('text/html');
+      } catch {
+        return false;
+      }
+    }
+
+    function connect(direct = false) {
+      const url = direct ? `ws://${location.hostname}:8081` : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/neural`;
+      let opened = false;
+      ws = new WebSocket(url);
+      ws.onopen = () => {
+        opened = true;
+        ws.send(JSON.stringify({ type: 'hello', role: 'depth' }));
+        $('#chip-relay').className = 'chip on';
+      };
+      ws.onclose = () => {
+        $('#chip-relay').className = 'chip wait';
+        setTimeout(() => connect(opened ? direct : !direct), 1500);
+      };
+      ws.onerror = () => ws.close();
+    }
+    connect();
+
+    async function listCameras() {
+      const devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+      const sel = $('#camera');
+      const current = sel.value;
+      sel.innerHTML = devices.map((d, i) => `<option value="${d.deviceId}">${d.label || `Camera ${i + 1}`}</option>`).join('');
+      if (current) sel.value = current;
+    }
+
+    async function loadModel() {
+      if (landmarker) return landmarker;
+      $('#chip-model').className = 'chip wait';
+      const wasmBase = (await exists('/mediapipe-wasm/vision_wasm_internal.wasm')) ? '/mediapipe-wasm' : `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`;
+      const modelPath = (await exists('/models/hand_landmarker.task')) ? '/models/hand_landmarker.task' : MODEL_REMOTE;
+      const fileset = await FilesetResolver.forVisionTasks(wasmBase);
+      const opts = (delegate) => ({ baseOptions: { modelAssetPath: modelPath, delegate }, runningMode: 'VIDEO', numHands: 2, minHandDetectionConfidence: 0.55, minHandPresenceConfidence: 0.55, minTrackingConfidence: 0.5 });
+      try {
+        landmarker = await HandLandmarker.createFromOptions(fileset, opts('GPU'));
+      } catch {
+        landmarker = await HandLandmarker.createFromOptions(fileset, opts('CPU'));
+      }
+      $('#chip-model').className = 'chip on';
+      return landmarker;
+    }
+
+    async function start() {
+      if (running) {
+        running = false;
+        stream?.getTracks().forEach((t) => t.stop());
+        $('#start').textContent = 'Start Depth Optic';
+        return;
+      }
+      try {
+        await loadModel();
+        const deviceId = $('#camera').value;
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: deviceId ? { deviceId: { exact: deviceId }, width: { ideal: 640 }, height: { ideal: 480 } } : { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: false
+        });
+        video.srcObject = stream;
+        await video.play();
+        await listCameras();
+        running = true;
+        $('#start').textContent = 'Stop Depth Optic';
+        loop();
+      } catch (err) {
+        alert(`Camera / model error: ${err.message}\nPhones need HTTPS — run "npm run start:lan" on the host PC.`);
+      }
+    }
+
+    /** Reach 0 (chest) .. 1 (extended) from the side-view palm x. */
+    function reachFrom(palmX) {
+      if (cal.near === null || cal.far === null || Math.abs(cal.far - cal.near) < 0.05) {
+        // uncalibrated: assume the screen is toward image-left when mounted on the right
+        return $('#mount').value === 'right' ? 1 - palmX : palmX;
+      }
+      return Math.min(Math.max((palmX - cal.near) / (cal.far - cal.near), 0), 1);
+    }
+
+    function loop() {
+      if (!running) return;
+      if (video.readyState >= 2) {
+        const now = performance.now();
+        const res = landmarker.detectForVideo(video, now);
+        const sign = $('#mount').value === 'right' ? 1 : -1;
+        const hands = (res.landmarks ?? []).map((lms, i) => {
+          const cat = (res.handedness ?? res.handednesses)?.[i]?.[0];
+          const palmX = (lms[0].x + lms[5].x + lms[9].x + lms[13].x + lms[17].x) / 5;
+          return {
+            handedness: cat?.categoryName === 'Left' ? 'Right' : 'Left',
+            landmarks: lms.map((p) => ({ x: p.x, y: p.y, z: p.z })),
+            reach: reachFrom(palmX),
+            palmX,
+            sign
+          };
+        });
+        latestPalmX = hands[0]?.palmX ?? null;
+        const r = hands[0]?.reach;
+        $('#reach-v').textContent = r === undefined ? '—' : `${(r * 100).toFixed(0)}%`;
+        $('#reach-fill').style.width = `${(r ?? 0) * 100}%`;
+        draw(hands);
+        if (ws?.readyState === WebSocket.OPEN && now - lastSend > 30) {
+          lastSend = now;
+          ws.send(JSON.stringify({ type: 'depth', hands, t: Date.now() }));
+        }
+        frames++;
+        if (now - fpsT > 500) {
+          $('#chip-fps').innerHTML = `<i></i>${Math.round((frames * 1000) / (now - fpsT))} FPS`;
+          $('#chip-fps').className = 'chip on';
+          frames = 0;
+          fpsT = now;
+        }
+      }
+      if ('requestVideoFrameCallback' in video) video.requestVideoFrameCallback(loop);
+      else requestAnimationFrame(loop);
+    }
+
+    function draw(hands) {
+      const w = (canvas.width = canvas.clientWidth * devicePixelRatio);
+      const h = (canvas.height = canvas.clientHeight * devicePixelRatio);
+      g.clearRect(0, 0, w, h);
+      g.strokeStyle = '#00f3ff';
+      g.lineWidth = 2 * devicePixelRatio;
+      g.shadowColor = '#00f3ff';
+      g.shadowBlur = 10;
+      for (const hand of hands) {
+        g.beginPath();
+        for (const [a, b] of HAND_BONES) {
+          g.moveTo(hand.landmarks[a].x * w, hand.landmarks[a].y * h);
+          g.lineTo(hand.landmarks[b].x * w, hand.landmarks[b].y * h);
+        }
+        g.stroke();
+      }
+      for (const k of ['near', 'far']) {
+        if (cal[k] === null) continue;
+        g.strokeStyle = k === 'near' ? '#ffb300' : '#31ff9c';
+        g.setLineDash([6, 6]);
+        g.beginPath();
+        g.moveTo(cal[k] * w, 0);
+        g.lineTo(cal[k] * w, h);
+        g.stroke();
+        g.setLineDash([]);
+      }
+    }
+
+    $('#start').addEventListener('click', start);
+    $('#cal-near').addEventListener('click', () => {
+      if (latestPalmX === null) return alert('Show your hand to the depth camera first.');
+      cal.near = latestPalmX;
+      saveCal();
+    });
+    $('#cal-far').addEventListener('click', () => {
+      if (latestPalmX === null) return alert('Show your hand to the depth camera first.');
+      cal.far = latestPalmX;
+      saveCal();
+    });
+    navigator.mediaDevices?.addEventListener?.('devicechange', listCameras);
+    listCameras().catch(() => {});
+  </script>
+</body>
+</html>
