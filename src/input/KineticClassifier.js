@@ -22,7 +22,8 @@ export const GESTURES = Object.freeze({
   VICTORY_PEACE_HOLD: 'VICTORY_PEACE_HOLD',
   FLAT_PALM_PUSH_DOWN: 'FLAT_PALM_PUSH_DOWN',
   LATERAL_ARM_SWEEP: 'LATERAL_ARM_SWEEP',
-  TWO_FINGER_HORIZONTAL_SCRUB: 'TWO_FINGER_HORIZONTAL_SCRUB'
+  TWO_FINGER_HORIZONTAL_SCRUB: 'TWO_FINGER_HORIZONTAL_SCRUB',
+  THREE_FINGER_GLIDE: 'THREE_FINGER_GLIDE'
 });
 
 export const LM = Object.freeze({
@@ -144,6 +145,8 @@ export function classifyPose(f, wasPinching = false) {
   const pinchThreshold = wasPinching ? CLASSIFIER_TUNING.pinchOff : CLASSIFIER_TUNING.pinchOn;
   if (f.pinchDist < pinchThreshold && !(middle.curled && ring.curled && pinky.curled && index.curled)) return 'pinch';
 
+  // index + middle + ring up, little finger curled: camera glide
+  if (index.extended && middle.extended && ring.extended && pinky.curl < 1.35) return 'threeFinger';
   const ringPinkyDown = ring.curl < 1.35 && pinky.curl < 1.35;
   if (index.extended && middle.extended && ringPinkyDown) {
     return f.vSpread > 0.32 ? 'victory' : 'twoFinger';
@@ -183,6 +186,9 @@ class HandTrack {
     this.fistActive = false;
     this.grabActive = false;
     this.scrubActive = false;
+    this.glideActive = false;
+    this.glideScale = 0;
+    this.glideReach = null;
     this.victoryStart = null;
     this.victoryFired = false;
     this.pointSince = null;
@@ -364,6 +370,21 @@ export class KineticClassifier {
         }
         break;
       }
+      case 'threeFinger': {
+        // X/Y from hand motion; Z from reach (depth optic) or apparent hand size
+        let dz = 0;
+        if (tr.reach !== null && tr.glideReach !== null) dz = (tr.reach - tr.glideReach) * 2;
+        else if (tr.glideScale > 0) dz = Math.log(f.palm / tr.glideScale) * 1.5;
+        tr.glideScale = f.palm;
+        tr.glideReach = tr.reach;
+        if (!tr.glideActive) {
+          tr.glideActive = true;
+          events.push(this._evt(GESTURES.THREE_FINGER_GLIDE, 'start', tr));
+        } else if (delta.x || delta.y || dz) {
+          events.push(this._evt(GESTURES.THREE_FINGER_GLIDE, 'move', tr, { delta, dz }));
+        }
+        break;
+      }
       case 'twoFinger': {
         if (!tr.scrubActive) {
           tr.scrubActive = true;
@@ -412,6 +433,12 @@ export class KineticClassifier {
       tr.grabActive = false;
       events.push(this._evt(GESTURES.GAUNTLET_GRAB_HOLD, 'end', tr));
       events.push(this._evt(GESTURES.OPEN_PALM_RELEASE, 'tap', tr, { reason: to === 'open' ? 'open-palm' : to }));
+    }
+    if (from === 'threeFinger' && tr.glideActive) {
+      tr.glideActive = false;
+      tr.glideScale = 0;
+      tr.glideReach = null;
+      events.push(this._evt(GESTURES.THREE_FINGER_GLIDE, 'end', tr));
     }
     if (from === 'twoFinger' && tr.scrubActive) {
       tr.scrubActive = false;
@@ -477,6 +504,7 @@ export function describePose(pose) {
     point: 'INDEX POINT',
     victory: 'VICTORY',
     twoFinger: 'TWO-FINGER',
+    threeFinger: 'THREE-FINGER GLIDE',
     open: 'OPEN PALM',
     none: '—'
   }[pose] ?? pose;

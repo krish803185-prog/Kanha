@@ -154,36 +154,73 @@
       $('#msg').textContent = 'Optic stopped.';
     }
 
-    /* ---------------- tracking loop ---------------- */
-    function loop() {
-      if (!running) return;
-      if (video.readyState >= 2) {
-        const now = performance.now();
-        const res = landmarker.detectForVideo(video, now);
-        // MediaPipe assumes a mirrored (selfie) image; this feed is unmirrored,
-        // so mirror x into "user space" and swap the handedness label.
-        const hands = (res.landmarks ?? []).map((lms, i) => {
-          const cat = (res.handedness ?? res.handednesses)?.[i]?.[0];
-          const label = cat?.categoryName === 'Left' ? 'Right' : 'Left';
-          return { handedness: label, score: cat?.score ?? 0, landmarks: lms.map((p) => ({ x: 1 - p.x, y: p.y, z: p.z })) };
-        });
-        const aspect = video.videoWidth / video.videoHeight || 4 / 3;
-        classifier.update(hands, now, aspect);
-        draw(hands);
-        if (ws?.readyState === WebSocket.OPEN && now - lastSend > 30) {
-          lastSend = now;
-          ws.send(JSON.stringify({ type: 'landmarks', hands, aspect, t: Date.now() }));
-        }
-        frames++;
-        if (now - fpsT > 500) {
-          $('#chip-fps').innerHTML = `<i></i>${Math.round((frames * 1000) / (now - fpsT))} FPS`;
-          $('#chip-fps').className = 'chip on';
-          frames = 0;
-          fpsT = now;
+    /* ---------------- tracking loop ----------------
+     * Must keep running while this window is minimised or hidden:
+     * requestAnimationFrame / requestVideoFrameCallback are suspended there.
+     *  1. Preferred: read VideoFrames straight from the camera track
+     *     (MediaStreamTrackProcessor) — not tied to page visibility.
+     *  2. Fallback: a Web Worker clock (worker timers are not suspended).
+     */
+    let lastTs = 0;
+    function processFrame(source, width, height) {
+      let now = performance.now();
+      if (now <= lastTs) now = lastTs + 0.01; // MediaPipe needs increasing timestamps
+      lastTs = now;
+      const res = landmarker.detectForVideo(source, now);
+      // MediaPipe assumes a mirrored (selfie) image; this feed is unmirrored,
+      // so mirror x into "user space" and swap the handedness label.
+      const hands = (res.landmarks ?? []).map((lms, i) => {
+        const cat = (res.handedness ?? res.handednesses)?.[i]?.[0];
+        const label = cat?.categoryName === 'Left' ? 'Right' : 'Left';
+        return { handedness: label, score: cat?.score ?? 0, landmarks: lms.map((p) => ({ x: 1 - p.x, y: p.y, z: p.z })) };
+      });
+      const aspect = width / height || 4 / 3;
+      classifier.update(hands, now, aspect);
+      if (!document.hidden) draw(hands); // skip drawing while minimised
+      if (ws?.readyState === WebSocket.OPEN && now - lastSend > 30) {
+        lastSend = now;
+        ws.send(JSON.stringify({ type: 'landmarks', hands, aspect, t: Date.now() }));
+      }
+      frames++;
+      if (now - fpsT > 500) {
+        $('#chip-fps').innerHTML = `<i></i>${Math.round((frames * 1000) / (now - fpsT))} FPS${document.hidden ? ' · BG' : ''}`;
+        $('#chip-fps').className = 'chip on';
+        frames = 0;
+        fpsT = now;
+      }
+    }
+
+    async function trackLoop() {
+      const track = stream.getVideoTracks()[0];
+      const reader = new MediaStreamTrackProcessor({ track }).readable.getReader();
+      while (running) {
+        const { value: frame, done } = await reader.read();
+        if (done) break;
+        try {
+          processFrame(frame, frame.displayWidth, frame.displayHeight);
+        } finally {
+          frame.close();
         }
       }
-      if ('requestVideoFrameCallback' in video) video.requestVideoFrameCallback(loop);
-      else requestAnimationFrame(loop);
+      reader.cancel().catch(() => {});
+    }
+
+    let ticker = null;
+    function workerLoop() {
+      ticker = new Worker(URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 33);'], { type: 'text/javascript' })));
+      ticker.onmessage = () => {
+        if (!running) {
+          ticker.terminate();
+          ticker = null;
+          return;
+        }
+        if (video.readyState >= 2) processFrame(video, video.videoWidth, video.videoHeight);
+      };
+    }
+
+    function loop() {
+      if ('MediaStreamTrackProcessor' in window) trackLoop().catch(() => workerLoop());
+      else workerLoop();
     }
 
     function draw(hands) {

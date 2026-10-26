@@ -93,7 +93,7 @@ export function ringGauge(value, { label = '', center = '', size = 120, stroke =
 
 /** CII A–E segmented sweep gauge. */
 function ciiGauge(ratingIndex, aer) {
-  const s = svg('svg', { viewBox: '0 0 200 130', class: 'gauge', style: 'max-width:300px' });
+  const s = svg('svg', { viewBox: '0 0 200 132', class: 'gauge', style: 'max-width:300px' });
   const cx = 100;
   const cy = 108;
   const R = 82;
@@ -107,10 +107,10 @@ function ciiGauge(ratingIndex, aer) {
     const am = (a0 + a1) / 2;
     s.append(Object.assign(svg('text', { x: cx + Math.cos(am) * (R - 20), y: cy + Math.sin(am) * (R - 20) + 3, 'text-anchor': 'middle', class: 'gauge__label', 'font-size': 9 }), { textContent: labels[i] }));
   }
-  const needle = svg('line', { x1: cx, y1: cy, x2: cx - R + 14, y2: cy, stroke: '#cdefff', 'stroke-width': 2, style: `transform-origin:${cx}px ${cy}px; transition: transform 2.2s cubic-bezier(.2,.9,.2,1)` });
+  const needle = svg('line', { x1: cx, y1: cy, x2: cx - R * 0.42, y2: cy, stroke: '#cdefff', 'stroke-width': 2, style: `transform-origin:${cx}px ${cy}px; transition: transform 2.2s cubic-bezier(.2,.9,.2,1)` });
   s.append(needle, svg('circle', { cx, cy, r: 5, fill: '#00f3ff' }));
-  s.append(Object.assign(svg('text', { x: cx, y: cy - 26, 'text-anchor': 'middle', class: 'gauge__value', 'font-size': 30, fill: colors[ratingIndex] }), { textContent: labels[ratingIndex] }));
-  s.append(Object.assign(svg('text', { x: cx, y: cy - 12, 'text-anchor': 'middle', class: 'gauge__label' }), { textContent: `AER ${aer.toFixed(2)} gCO₂/dwt·nm` }));
+  s.append(Object.assign(svg('text', { x: cx, y: cy - 44, 'text-anchor': 'middle', class: 'gauge__value', 'font-size': 26, fill: colors[ratingIndex] }), { textContent: labels[ratingIndex] }));
+  s.append(Object.assign(svg('text', { x: cx, y: cy + 16, 'text-anchor': 'middle', class: 'gauge__label' }), { textContent: `AER ${aer.toFixed(2)} gCO₂/dwt·nm` }));
   requestAnimationFrame(() => requestAnimationFrame(() => (needle.style.transform = `rotate(${((ratingIndex + 0.5) / 5) * 180}deg)`)));
   return s;
 }
@@ -214,6 +214,49 @@ function pbar(label, valueText, frac, kind = '') {
   requestAnimationFrame(() => requestAnimationFrame(() => (b.querySelector('.pbar__fill').style.width = `${Math.min(frac, 1) * 100}%`)));
   return b;
 }
+
+/** Animated single-series column chart with hover readouts. */
+function bars(values, labels, { cls = '', tip = (v) => fmt(v), height = 170, max = Math.max(...values, 1) } = {}) {
+  const h = el('div', 'histo');
+  h.style.height = `${height}px`;
+  h.style.gridTemplateColumns = `repeat(${values.length}, 1fr)`;
+  values.forEach((v, i) => {
+    const col = el('div', 'histo__col');
+    const b = el('div', `histo__bar histo__bar--solo ${cls}`);
+    b.style.transitionDelay = `${i * 0.04}s`;
+    col.append(b, el('div', 'histo__lbl', labels[i] ?? ''), el('div', 'histo__tip', tip(v, i)));
+    h.append(col);
+    requestAnimationFrame(() => requestAnimationFrame(() => (b.style.height = `${(Math.max(v, 0) / max) * 100}%`)));
+  });
+  return h;
+}
+
+function table(headers, rows, { reveal = true } = {}) {
+  const t = el('table', 'data-table');
+  t.innerHTML = `<thead><tr>${headers.map((x) => `<th>${x}</th>`).join('')}</tr></thead>`;
+  const tb = el('tbody');
+  rows.forEach((r, i) => {
+    const tr = el('tr', reveal ? 'reveal' : '', r.map((c) => `<td>${c}</td>`).join(''));
+    tr.style.animationDelay = `${0.1 + i * 0.04}s`;
+    tb.append(tr);
+  });
+  t.append(tb);
+  return t;
+}
+
+const pass = (ok) => `<b style="color:${ok ? 'var(--green)' : 'var(--crimson)'}">${ok ? 'PASS' : 'FAIL'}</b>`;
+
+// IMO CII reduction factors vs 2019 (MEPC.338(76) / MEPC.400(83)).
+const CII_Z = { 2026: 0.11, 2027: 0.13625, 2028: 0.1625, 2029: 0.18875, 2030: 0.215 };
+const FUEL_MIX = {
+  container: [['VLSFO', 0.82], ['MGO (ECA)', 0.14], ['B30 BIO', 0.04]],
+  vlcc: [['HFO + SCRUBBER', 0.78], ['VLSFO', 0.15], ['MGO', 0.07]],
+  chemical: [['VLSFO', 0.84], ['MGO (ECA)', 0.16], ['BIO', 0]],
+  bulk: [['HFO + SCRUBBER', 0.8], ['VLSFO', 0.14], ['MGO', 0.06]],
+  lng: [['LNG / BOG', 0.81], ['VLSFO', 0.15], ['MGO PILOT', 0.04]],
+  roro: [['LNG (DF)', 0.58], ['VLSFO', 0.34], ['MGO (ECA)', 0.08]]
+};
+const RATING_COLORS = ['#31ff9c', '#9dff4a', '#00f3ff', '#ffb300', '#ff0033'];
 
 /* ------------------------------------------------------------------ */
 /*  Controller                                                         */
@@ -454,6 +497,32 @@ export class OmniChronicleTelemetry {
     ));
     ch.append(el('div', 'histo-legend', '<span><i></i>Attained AER</span><span><i class="cost"></i>IMO required CII (Z-factor reduction 9% → 11%)</span>'));
     body.append(ch);
+
+    const co2 = card('Monthly CO₂ emissions (t) — per voyage leg', 'rcard--half');
+    const co2v = c.months.map((m) => m.focMtDay * m.seaDays * 3.114);
+    co2.append(bars(co2v, c.months.map((m) => m.month.slice(0, 3)), { tip: (v, i) => `<b>${c.months[i].month} · ${c.months[i].port}</b><br>${fmt(v)} t CO₂<br>${c.months[i].seaDays} d at sea · ${c.months[i].focMtDay} t/d` }));
+    body.append(co2);
+
+    const out = card('CII rating outlook 2026–2030 (IMO reduction path, −1.5 %/yr AER improvement)', 'rcard--half');
+    const ref = c.requiredCii / (1 - CII_Z[2026]);
+    const rows = Object.entries(CII_Z).map(([yr, z], i) => {
+      const req = ref * (1 - z);
+      const aer = c.aer * Math.pow(0.985, i);
+      const bands = [0.86, 0.94, 1.06, 1.18].map((k) => req * k);
+      const idx = bands.findIndex((b) => aer <= b);
+      const r = idx === -1 ? 4 : idx;
+      return [yr, `${(z * 100).toFixed(2)} %`, req.toFixed(2), aer.toFixed(2), `<b style="color:${RATING_COLORS[r]}">${'ABCDE'[r]}</b>`, r >= 3 ? '<span style="color:var(--amber)">corrective plan (SEEMP III)</span>' : 'compliant'];
+    });
+    out.append(table(['YEAR', 'Z-FACTOR', 'REQUIRED', 'PROJ. AER', 'RATING', 'ACTION'], rows));
+    body.append(out);
+
+    const mix = card(`Fuel mix YTD — ${fmt(c.co2YtdMt)} t CO₂ total`, 'rcard--full');
+    const rr = el('div', 'ring-row');
+    (FUEL_MIX[this.vessel.typeKey] ?? FUEL_MIX.container).forEach(([k, v]) => rr.append(ringGauge(v, { label: k, center: `${(v * 100).toFixed(0)}%`, size: 120, stroke: 7 })));
+    rr.append(ringGauge(Math.min(c.eexi / c.eexiRequired, 1), { label: 'EEXI / REQ', center: `${((c.eexi / c.eexiRequired) * 100).toFixed(0)}%`, size: 120, stroke: 7, color: 'var(--amber)' }));
+    rr.append(ringGauge(Math.min(c.aer / c.ratingBoundaries[3], 1), { label: 'AER / D|E', center: `${((c.aer / c.ratingBoundaries[3]) * 100).toFixed(0)}%`, size: 120, stroke: 7, color: 'var(--amber)' }));
+    mix.append(rr);
+    body.append(mix);
   }
 
   _yield(body) {
@@ -496,6 +565,31 @@ export class OmniChronicleTelemetry {
     u.append(pbar('Daily OPEX', `${money(y.dailyOpex)}/d`, y.dailyOpex / 16000));
     u.append(pbar('Margin (net / gross)', `${((y.ytdNetRevenue / y.ytdGrossRevenue) * 100).toFixed(1)}%`, y.ytdNetRevenue / y.ytdGrossRevenue));
     body.append(u);
+
+    const cum = card('Cumulative net earnings vs cumulative bunker spend (USD)', 'rcard--half');
+    let a = 0;
+    let bsum = 0;
+    const cumNet = y.months.map((m) => (a += m.profit));
+    const cumBunker = y.months.map((m) => (bsum += m.bunker));
+    cum.append(splineChart([{ values: cumNet, cls: 'curve--actual', fill: true, dots: true }, { values: cumBunker, cls: 'curve--imo' }], { labels: y.months.map((m) => m.month), height: 200 }));
+    cum.append(el('div', 'histo-legend', `<span><i></i>Net ${money(cumNet[cumNet.length - 1])}</span><span><i class="cost"></i>Bunkers ${money(cumBunker[cumBunker.length - 1])}</span>`));
+    body.append(cum);
+
+    const cost = card('Cost structure (share of gross freight)', 'rcard--half');
+    const gross = y.ytdGrossRevenue;
+    const port = gross * 0.085;
+    const comm = gross * 0.025;
+    const rr = el('div', 'ring-row');
+    [['BUNKERS', y.bunkerCost / gross], ['OPEX', y.runningOpex / gross], ['PORT & CANAL', port / gross], ['COMMISSIONS', comm / gross], ['NET MARGIN', y.ytdNetRevenue / gross]].forEach(([k, v], i) =>
+      rr.append(ringGauge(v, { label: k, center: `${(v * 100).toFixed(1)}%`, size: 112, stroke: 7, color: i === 4 ? 'var(--green)' : i === 0 ? 'var(--amber)' : 'var(--cyan)' }))
+    );
+    cost.append(rr);
+    cost.append(el('div', 'hint', `Port & canal dues estimated at 8.5 % and brokerage / address commission at 2.5 % of gross freight (${money(port)} / ${money(comm)}).`));
+    body.append(cost);
+
+    const pl = card('Voyage P&L ledger — 12 legs', 'rcard--full');
+    pl.append(table(['MONTH', 'PORT CALL', 'DIST', 'SEA DAYS', 'GROSS', 'BUNKERS', 'OPEX', 'NET', 'TCE EQUIV.'], y.months.map((m) => [m.month, m.port, `${fmt(m.distanceNm)} NM`, m.seaDays, money(m.revenue), money(m.bunker), money(m.opex), `<b style="color:${m.profit > 0 ? 'var(--green)' : 'var(--crimson)'}">${money(m.profit)}</b>`, `${money((m.revenue - m.bunker) / 30.4)}/d`])));
+    body.append(pl);
   }
 
   _cargo(body) {
@@ -556,6 +650,50 @@ export class OmniChronicleTelemetry {
     sf.querySelectorAll('.curve--actual')[1]?.setAttribute('style', 'stroke: var(--amber)');
     sf.append(el('div', 'histo-legend', `<span><i></i>Bending moment (max ${Math.max(...c.bm.map(Math.abs)).toFixed(1)}%)</span><span><i class="cost"></i>Shear force (max ${Math.max(...c.sf.map(Math.abs)).toFixed(1)}%)</span>`));
     body.append(sf);
+
+    // Hydrostatics + intact stability (wall-sided GZ to deck-edge immersion, then decaying to vanishing angle)
+    const p = v.particulars;
+    const T = c.draft.mid;
+    const KB = 0.53 * T;
+    const BM = (0.083 * p.beam * p.beam) / (T * Math.max(p.cb, 0.5)) * (p.cb + 0.15);
+    const KM = KB + BM;
+    const FSC = Math.max(0.08, c.gm0 * 0.06);
+    const KG = KM - c.gm0 - FSC;
+    const freeboard = p.depth - T;
+    const thDeck = Math.atan2(2 * freeboard, p.beam);
+    const thVan = Math.min(Math.PI * 0.42 + c.gm0 * 0.01, Math.PI * 0.5);
+    const gzAt = (th) => {
+      if (th <= thDeck) return Math.sin(th) * (c.gm0 + 0.5 * BM * Math.tan(th) ** 2);
+      const g0 = Math.sin(thDeck) * (c.gm0 + 0.5 * BM * Math.tan(thDeck) ** 2);
+      return Math.max(g0 * Math.cos(((th - thDeck) / (thVan - thDeck)) * (Math.PI / 2)) * (1 + 0.25 * Math.sin(((th - thDeck) / (thVan - thDeck)) * Math.PI)), 0);
+    };
+    const degs = Array.from({ length: 31 }, (_, i) => i * 2.5);
+    const gz = degs.map((d) => gzAt((d * Math.PI) / 180));
+    const area = (a0, a1) => {
+      let A = 0;
+      for (let d = a0; d < a1; d += 0.5) A += gzAt(((d + 0.25) * Math.PI) / 180) * ((0.5 * Math.PI) / 180);
+      return A;
+    };
+    const gzMax = Math.max(...gz);
+    const gzMaxAt = degs[gz.indexOf(gzMax)];
+    const st = card('Hydrostatics & IMO intact stability (2008 IS Code, ch. 2.2)', 'rcard--half');
+    st.append(table(['PARAMETER', 'VALUE', 'CRITERION', 'STATUS'], [
+      ['Displacement Δ', `${fmt(c.displacementMt)} t`, '—', '—'],
+      ['KM / KG (fluid)', `${KM.toFixed(2)} / ${KG.toFixed(2)} m`, '—', '—'],
+      ['Free-surface corr.', `${FSC.toFixed(2)} m`, '—', '—'],
+      ['GM₀ (fluid)', `${c.gm0.toFixed(2)} m`, '≥ 0.15 m', pass(c.gm0 >= 0.15)],
+      ['Area 0–30°', `${area(0, 30).toFixed(3)} m·rad`, '≥ 0.055', pass(area(0, 30) >= 0.055)],
+      ['Area 0–40°', `${area(0, 40).toFixed(3)} m·rad`, '≥ 0.090', pass(area(0, 40) >= 0.09)],
+      ['Area 30–40°', `${area(30, 40).toFixed(3)} m·rad`, '≥ 0.030', pass(area(30, 40) >= 0.03)],
+      ['GZ max', `${gzMax.toFixed(2)} m at ${gzMaxAt}°`, '≥ 0.20 m at ≥ 25°', pass(gzMax >= 0.2 && gzMaxAt >= 25)],
+      ['Deck-edge immersion', `${((thDeck * 180) / Math.PI).toFixed(1)}°`, '—', '—']
+    ]));
+    body.append(st);
+
+    const gzc = card('GZ righting-arm curve (m) vs heel', 'rcard--half');
+    gzc.append(splineChart([{ values: gz, cls: 'curve--actual', fill: true, dots: false }], { labels: degs.map((d) => (d % 10 === 0 ? `${d}°` : '')), unit: ' m', bands: [{ value: 0.2, label: 'GZ 0.20 m criterion', color: '#ffb300' }], height: 230 }));
+    gzc.append(el('div', 'hint', `Vanishing angle ≈ ${((thVan * 180) / Math.PI).toFixed(0)}° · range of positive stability ok · computed for the present loaded condition.`));
+    body.append(gzc);
   }
 
   _draftDiagram(draft, design) {
@@ -611,5 +749,30 @@ export class OmniChronicleTelemetry {
     c.depts.forEach((d) => rings.append(pbar(`${d.dept} · ${d.headcount} pax`, `${(d.readiness * 100).toFixed(1)}%`, d.readiness, d.readiness < 0.92 ? 'pbar__fill--warn' : '')));
     rings.append(el('div', 'hint', `<i class="watch-dot is-on"></i>On watch ${onWatch} &nbsp; <i class="watch-dot is-next"></i>Next ${nextWatch} · MLC 2006 rest-hour minimum 77 h / 7 days`));
     body.append(rings);
+
+    const rest = card('Rest hours, last 7 days (MLC 2006 / STCW minimum 77 h)', 'rcard--half');
+    rest.append(bars(c.roster.map((m) => m.restHours7d), c.roster.map((m) => m.rank.split(' ').map((w) => w[0]).join('')), {
+      max: 96,
+      cls: '',
+      tip: (v, i) => `<b>${c.roster[i].rank}</b><br>${c.roster[i].name}<br>${v} h rest · ${v >= 77 ? 'compliant' : 'NON-COMPLIANT'}`
+    }));
+    body.append(rest);
+
+    const now = Date.now();
+    const day = 86400000;
+    const drills = [
+      ['Fire drill (SOLAS III/19)', 30], ['Abandon-ship drill', 30], ['Enclosed-space entry & rescue', 60], ['Emergency steering drill', 90],
+      ['Oil-spill / SOPEP drill', 90], ['Emergency generator test', 7], ['Liferaft HRU service', 365], ['ISPS security drill', 90]
+    ];
+    const seed = Number(v.id.slice(-1));
+    const dr = card('Drills, statutory tests & LSA/FFA servicing', 'rcard--half');
+    dr.append(table(['ITEM', 'INTERVAL', 'LAST DONE', 'NEXT DUE', 'STATUS'], drills.map(([name, interval], i) => {
+      const ago = ((i * 7 + seed * 5) % Math.max(interval - 1, 2)) + 1;
+      const last = new Date(now - ago * day);
+      const next = new Date(last.getTime() + interval * day);
+      const left = Math.round((next - now) / day);
+      return [name, `${interval} d`, last.toISOString().slice(0, 10), next.toISOString().slice(0, 10), left <= 3 ? '<b style="color:var(--amber)">DUE</b>' : '<b style="color:var(--green)">OK</b>'];
+    })));
+    body.append(dr);
   }
 }

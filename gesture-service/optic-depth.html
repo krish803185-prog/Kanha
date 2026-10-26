@@ -181,11 +181,42 @@
       return Math.min(Math.max((palmX - cal.near) / (cal.far - cal.near), 0), 1);
     }
 
+    /* Tracking keeps running while this page is minimised / in the background:
+     * camera frames come straight from the track (MediaStreamTrackProcessor),
+     * else a Web Worker clock drives the loop (rAF is suspended when hidden). */
+    let lastTs = 0;
+    async function trackLoop() {
+      const track = stream.getVideoTracks()[0];
+      const reader = new MediaStreamTrackProcessor({ track }).readable.getReader();
+      while (running) {
+        const { value: frame, done } = await reader.read();
+        if (done) break;
+        try {
+          processFrame(frame);
+        } finally {
+          frame.close();
+        }
+      }
+      reader.cancel().catch(() => {});
+    }
+    function workerLoop() {
+      const ticker = new Worker(URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 33);'], { type: 'text/javascript' })));
+      ticker.onmessage = () => {
+        if (!running) return ticker.terminate();
+        if (video.readyState >= 2) processFrame(video);
+      };
+    }
     function loop() {
-      if (!running) return;
-      if (video.readyState >= 2) {
-        const now = performance.now();
-        const res = landmarker.detectForVideo(video, now);
+      if ('MediaStreamTrackProcessor' in window) trackLoop().catch(() => workerLoop());
+      else workerLoop();
+    }
+
+    function processFrame(source) {
+      {
+        let now = performance.now();
+        if (now <= lastTs) now = lastTs + 0.01;
+        lastTs = now;
+        const res = landmarker.detectForVideo(source, now);
         const sign = $('#mount').value === 'right' ? 1 : -1;
         const hands = (res.landmarks ?? []).map((lms, i) => {
           const cat = (res.handedness ?? res.handednesses)?.[i]?.[0];
@@ -202,21 +233,19 @@
         const r = hands[0]?.reach;
         $('#reach-v').textContent = r === undefined ? '—' : `${(r * 100).toFixed(0)}%`;
         $('#reach-fill').style.width = `${(r ?? 0) * 100}%`;
-        draw(hands);
+        if (!document.hidden) draw(hands);
         if (ws?.readyState === WebSocket.OPEN && now - lastSend > 30) {
           lastSend = now;
           ws.send(JSON.stringify({ type: 'depth', hands, t: Date.now() }));
         }
         frames++;
         if (now - fpsT > 500) {
-          $('#chip-fps').innerHTML = `<i></i>${Math.round((frames * 1000) / (now - fpsT))} FPS`;
+          $('#chip-fps').innerHTML = `<i></i>${Math.round((frames * 1000) / (now - fpsT))} FPS${document.hidden ? ' · BG' : ''}`;
           $('#chip-fps').className = 'chip on';
           frames = 0;
           fpsT = now;
         }
       }
-      if ('requestVideoFrameCallback' in video) video.requestVideoFrameCallback(loop);
-      else requestAnimationFrame(loop);
     }
 
     function draw(hands) {

@@ -22,7 +22,8 @@ import { SYSTEM_CONFIG } from '../core/NexusStateCore.js';
 const KN = 0.514444;
 const G = 9.81;
 const RHO_AIR = 1.225;
-const VISUAL = { heel: 3, sinkage: 6, yaw: 1, autopilotTime: 8 };
+// Visual exaggeration (numbers reported are always the true values).
+const VISUAL = { heel: 3, minHeelDeg: 2.5, sinkage: 1.5, trim: 1.5, yaw: 1, autopilotTime: 8 };
 
 export class AetherHydroSculptor {
   /**
@@ -44,6 +45,11 @@ export class AetherHydroSculptor {
     this.windLever = (p.depth - this.T + deckStack) / 2 + this.T / 2;
     this.underwaterArea = p.lbp * this.T;
     this.maxDepth = Math.max(60, Math.ceil(this.T * 3));
+    this.freeboard = p.depth - this.T;
+    // static trim from the draft marks (rad, + = by the stern)
+    this.staticTrim = Math.atan2(vessel.cargo.draft.aft - vessel.cargo.draft.fwd, p.lbp);
+    // alongside a berth the ship is moored: no way on until she casts off
+    this.moored = vessel.status === 'LOADING' || vessel.status === 'DISCHARGING';
     this.speedKn = vessel.speedKn > 0 ? vessel.speedKn : 0;
     this.depthM = Math.min(this.maxDepth, +(this.T * (vessel.speedKn > 0 ? 2.6 : 1.25)).toFixed(1));
     this.currentKn = 0;
@@ -69,8 +75,27 @@ export class AetherHydroSculptor {
   /* ------------------------------------------------------------------ */
   /*  Inputs                                                             */
   /* ------------------------------------------------------------------ */
+  /** @returns {boolean} false if refused (moored alongside). */
   setSpeed(kn) {
-    this.speedKn = THREE.MathUtils.clamp(kn, 0, 22);
+    if (this.moored) {
+      this.speedKn = 0;
+      return false;
+    }
+    this.speedKn = THREE.MathUtils.clamp(kn, 0, Math.min(22, this.vessel.serviceSpeedKn + 2));
+    return true;
+  }
+
+  /** Single up all lines and get underway (or make fast alongside again). */
+  setMoored(on) {
+    this.moored = on;
+    if (on) {
+      this.speedKn = 0;
+      this.psi = 0;
+      this.r = 0;
+      this.rudder = 0;
+      this.crossTrack = 0;
+      this.integral = 0;
+    }
   }
 
   setDepth(m) {
@@ -118,13 +143,18 @@ export class AetherHydroSculptor {
     const q = 0.5 * RHO_AIR * 1.1 * Vw * Vw;
     const M = q * this.windArea * this.windLever; // N·m
     const restoring = this.displacement * 1000 * G * this.GM;
-    const steadyHeel = Math.asin(THREE.MathUtils.clamp(M / restoring, 0, 0.5));
-    const rollAmp = THREE.MathUtils.degToRad(4.5) * this.squallLevel * (this.vessel.typeKey === 'container' ? 1.2 : 1);
+    // mooring lines and fenders restrain a ship alongside
+    const restraint = this.moored ? 0.45 : 1;
+    const steadyHeel = Math.asin(THREE.MathUtils.clamp(M / restoring, 0, 0.5)) * restraint;
     const rollPeriod = 2 * Math.PI * 0.39 * this.B / Math.sqrt(Math.max(this.GM, 0.3)); // IMO roll period approx
-    const roll = rollAmp * Math.sin((2 * Math.PI * this.time) / rollPeriod);
-    // Wind from starboard pushes the topsides to port -> heel to port (negative).
-    const heel = -this.fromSide * steadyHeel + roll;
-    this._visualHeel = -this.fromSide * steadyHeel * VISUAL.heel + roll;
+    const phase = Math.sin((2 * Math.PI * this.time) / rollPeriod);
+    const rollAmp = THREE.MathUtils.degToRad(1.2) * this.squallLevel * restraint;
+    // Wind from starboard pushes the topsides to port -> heel to PORT (negative).
+    // The true heel is reported; on screen the heel is exaggerated and the wave
+    // roll oscillates *around* the leeward heel so it never swings to windward.
+    const heel = -this.fromSide * steadyHeel + rollAmp * phase;
+    const visSteady = Math.max(steadyHeel * VISUAL.heel, THREE.MathUtils.degToRad(VISUAL.minHeelDeg) * this.squallLevel * restraint);
+    this._visualHeel = -this.fromSide * visSteady * (1 + 0.3 * phase);
 
     // Leeway (wind) and crab (current) angles.
     const Vs = Math.max(V, 0.5);
@@ -135,7 +165,13 @@ export class AetherHydroSculptor {
     const driftRequired = -setDirection * (crab + leeway); // heading offset the autopilot must hold (into the set)
 
     // Autopilot track control + Nomoto yaw (K, Tn scaled with L/V).
-    if (dt > 0) {
+    if (dt > 0 && this.moored) {
+      this.time += dt;
+      // made fast alongside: no yaw, no drift, rudder midships
+      this.psi *= 0.9;
+      this.r = 0;
+      this.rudder *= 0.9;
+    } else if (dt > 0) {
       this.time += dt;
       // Large hulls answer the helm over minutes; the A/P loop runs time-compressed.
       dt *= VISUAL.autopilotTime;
@@ -183,7 +219,9 @@ export class AetherHydroSculptor {
       currentKn: currentLevel,
       fromSide: this.fromSide,
       squallLevel: this.squallLevel,
-      grounded: ukc <= 0
+      grounded: ukc <= 0,
+      moored: this.moored,
+      freeboardM: this.freeboard - (sinkFwd + sinkAft) / 2
     };
     return this.state;
   }
@@ -250,10 +288,18 @@ export class AetherHydroSculptor {
   update(dt, { motion, rudderPart, waterUniforms }) {
     const s = this.compute(dt);
     const { D, S } = this.dims;
-    // heave (squat sinkage), heel (about X), trim (about Z), yaw (about Y)
-    motion.position.y = -((s.sinkFwd + s.sinkAft) / 2) * S * VISUAL.sinkage;
+    // Heave (squat sinkage), heel (about X), trim (about Z), yaw (about Y).
+    // Visual sinkage is capped so the deck edge never goes under (sinkage + trim keep ≥ 30% of the
+    // freeboard stays dry) and the keel never passes through the seabed.
+    const meanSink = ((s.sinkFwd + s.sinkAft) / 2) * VISUAL.sinkage;
+    const staticUkc = Math.max(this.depthM - this.T, 0);
+    const visSink = Math.min(meanSink, this.freeboard * 0.35, staticUkc);
+    motion.position.y = -visSink * S;
     motion.rotation.x = this._visualHeel;
-    motion.rotation.z = -s.squatTrimRad * VISUAL.sinkage * 4;
+    // static trim from the draft marks (+ by stern = bow up) minus squat trim by the head
+    const trim = this.staticTrim - s.squatTrimRad * VISUAL.trim;
+    const maxTrim = Math.atan2(this.freeboard * 0.35, this.L / 2);
+    motion.rotation.z = THREE.MathUtils.clamp(trim, -maxTrim, maxTrim);
     motion.rotation.y = -this.psi * VISUAL.yaw;
     // starboard helm (+) swings the trailing edge to starboard
     if (rudderPart) rudderPart.rotation.y = this.rudder;
@@ -276,7 +322,8 @@ export class AetherHydroSculptor {
     }
     if (waterUniforms) {
       waterUniforms.uWave.value = 0.025 + 0.12 * s.squallLevel;
-      waterUniforms.uWindDir.value.set(dir.x, dir.z);
+      // water lives in the world frame: ship (x, z) -> world (z, -x)
+      waterUniforms.uWindDir.value.set(dir.z, -dir.x);
     }
     return s;
   }

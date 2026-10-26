@@ -63,7 +63,8 @@ if not defined BROWSER if exist "%LOCALAPPDATA%\Google\Chrome\Application\chrome
 if not defined BROWSER goto :default_browser
 
 echo  [OK] Launching App Mode: "%BROWSER%"
-start "" "%BROWSER%" --app=%KANHA_URL% --start-fullscreen --user-data-dir="%KANHA_PROFILE%" --no-first-run --no-default-browser-check --autoplay-policy=no-user-gesture-required
+rem Background-throttling flags keep the optic sensor window tracking while minimised.
+start "" "%BROWSER%" --app=%KANHA_URL% --start-fullscreen --user-data-dir="%KANHA_PROFILE%" --no-first-run --no-default-browser-check --autoplay-policy=no-user-gesture-required --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding
 goto :launched
 
 :default_browser

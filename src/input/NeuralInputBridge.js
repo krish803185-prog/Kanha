@@ -16,6 +16,8 @@
  *   P ........................ FLAT_PALM_PUSH_DOWN
  *   [ / ] .................... LATERAL_ARM_SWEEP  (-X / +X)
  *   , / . (hold) ............. TWO_FINGER_HORIZONTAL_SCRUB
+ *   W A S D / Q E (hold) ..... THREE_FINGER_GLIDE camera move (Z / X / Y), Shift = fast
+ *   R ........................ reset camera to the mode's default view
  */
 import { KineticClassifier, GESTURES, HAND_BONES } from './KineticClassifier.js';
 import { SYSTEM_CONFIG } from '../core/NexusStateCore.js';
@@ -170,6 +172,7 @@ export class NeuralInputBridge {
     if (evt.source === 'neural' && ctx) {
       if (evt.type === GESTURES.CLOSED_FIST_DRAG && evt.phase === 'move') ctx.orbitBy(evt.delta.x, evt.delta.y);
       if (evt.type === GESTURES.TWO_HAND_PINCH_SPREAD && evt.phase === 'move') ctx.zoomBy(1 - evt.value * 0.8);
+      if (evt.type === GESTURES.THREE_FINGER_GLIDE && evt.phase === 'move') ctx.moveCamera(evt.delta.x * 1.2, evt.delta.y * 1.2, (evt.dz ?? 0) * 1.5);
     }
   }
 
@@ -359,6 +362,7 @@ export class NeuralInputBridge {
       else if (k === '[' || k === ']') this.emit(GESTURES.LATERAL_ARM_SWEEP, 'trigger', { source: 'keyboard', value: k === ']' ? 1 : -1 });
       else if (k === ',' || k === '.') this._startScrub(k === '.' ? 1 : -1);
       else if (k === 'escape') this.nexus.bus.emit('input:escape');
+      else if (k === 'r' && !e.ctrlKey && !e.metaKey) this.nexus.context?.resetView();
     });
     window.addEventListener('keyup', (e) => {
       const k = e.key.toLowerCase();
@@ -367,9 +371,53 @@ export class NeuralInputBridge {
       if (k === ',' || k === '.') this._stopScrub();
     });
     window.addEventListener('blur', () => {
+      // a key released while unfocused never sends keyup: drop all held keys
+      this._keysHeld.clear();
+      this._padHeld?.clear();
       this._cancelVictoryHold();
       this._stopScrub();
     });
+  }
+
+  /**
+   * Per-frame tick: continuous camera translation while W/A/S/D/Q/E or an
+   * on-screen camera-pad button is held. Speed is a fraction of the viewing
+   * distance per second; Shift is 3x.
+   */
+  update(dt) {
+    const ctx = this.nexus.context;
+    if (!ctx || this.nexus.transitioning) return;
+    const held = this._keysHeld;
+    const pad = this._padHeld ?? new Set();
+    const on = (k) => held.has(k) || pad.has(k);
+    const x = (on('d') ? 1 : 0) - (on('a') ? 1 : 0);
+    const y = (on('e') ? 1 : 0) - (on('q') ? 1 : 0);
+    const z = (on('w') ? 1 : 0) - (on('s') ? 1 : 0);
+    if (!x && !y && !z) return;
+    const speed = 0.6 * dt * (held.has('shift') ? 3 : 1);
+    ctx.moveCamera(x * speed, y * speed, z * speed);
+  }
+
+  /** On-screen camera pad: press-and-hold buttons carrying data-cam="w|a|s|d|q|e". */
+  bindCameraPad(root) {
+    this._padHeld = new Set();
+    root.querySelectorAll('[data-cam]').forEach((btn) => {
+      const k = btn.dataset.cam;
+      const down = (e) => {
+        e.preventDefault();
+        this._padHeld.add(k);
+        btn.classList.add('is-held');
+      };
+      const up = () => {
+        this._padHeld.delete(k);
+        btn.classList.remove('is-held');
+      };
+      btn.addEventListener('pointerdown', down);
+      btn.addEventListener('pointerup', up);
+      btn.addEventListener('pointerleave', up);
+      btn.addEventListener('pointercancel', up);
+    });
+    root.querySelector('[data-cam-reset]')?.addEventListener('click', () => this.nexus.context?.resetView());
   }
 
   _startVictoryHold() {

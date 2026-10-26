@@ -807,6 +807,29 @@ const DESC = {
   carDecks: 'Hydraulically hoistable car decks that can be raised/lowered to accommodate high & heavy cargo heights.',
   rackingFrames: 'Heavy racking transverse web frames resisting racking distortion in the open ro-ro deck spaces without transverse bulkheads.',
   shellDoors: 'Side shell doors / side ramp with hydraulic cleating and watertight seals for quayside loading.',
+  auxBoiler: 'Oil-fired auxiliary boiler with exhaust-gas economiser in the casing, supplying steam for fuel heating, cargo heating and turbine-driven pumps; safety valves, low-water and flame-failure trips.',
+  purifiers: 'Self-cleaning centrifugal separators for HFO/VLSFO and lube oil, removing water and catalytic fines (Al+Si) before the service tanks.',
+  airSystem: 'Main air compressors charging two 30-bar starting-air receivers (12 consecutive starts, SOLAS II-1/34) plus control- and service-air systems.',
+  ecr: 'Air-conditioned Engine Control Room with the main switchboard (6.6 kV / 440 V), power-management system, alarm & monitoring and the main-engine control console.',
+  erPumps: 'Main fire pumps, bilge & ballast pumps and general-service pumps drawing from the high and low sea chests; fire main kept pressurised (SOLAS II-2/10).',
+  owsFwg: '15-ppm oily water separator with oil-content meter (MARPOL Annex I) and a vacuum fresh-water generator using jacket-cooling-water heat.',
+  fuelTanks: 'Settling and service tanks for VLSFO/HFO and MGO, heated and fitted with quick-closing valves operable from outside the engine room.',
+  steeringGear: 'Electro-hydraulic rotary-vane steering gear with two independent power units and emergency steering from the steering-gear flat (SOLAS II-1/29).',
+  efp: 'Emergency fire pump with independent drive and its own sea suction, located outside the main machinery space (SOLAS II-2/10.2.2).',
+  bowThruster: 'Transverse tunnel bow thruster with controllable-pitch propeller for berthing and slow-speed manoeuvring.',
+  bridgeConsoles: 'Integrated bridge consoles: dual ECDIS, X- and S-band ARPA radars, conning display, autopilot / track control, engine telegraph, GMDSS station (VHF/MF/HF DSC, Inmarsat-C, NAVTEX) and BNWAS.',
+  compass: 'Standard magnetic compass on the monkey island, gyro-compass repeaters on the bridge wings, wind sensor, GNSS / DGPS and AIS antennas.',
+  navLights: "COLREG navigation lights — masthead (fwd & aft), port red & starboard green sidelights, sternlight, anchor and NUC lights — plus the ship's whistle and daylight signal lamp.",
+  vdrCapsule: 'VDR protective float-free capsule recording bridge audio, radar, ECDIS, AIS and sensor data (SOLAS V/20), with float-free EPIRB and radar SARTs.',
+  liferafts: 'Inflatable liferafts in GRP canisters on cradles with hydrostatic release units: davit-launched rafts aft and a throw-over raft forward (SOLAS III/31).',
+  rescueBoat: 'Fast rescue boat on a single-arm davit for man-overboard recovery and marshalling survival craft (LSA Code 5.1).',
+  emergencyGen: 'Emergency diesel generator and emergency switchboard above the bulkhead deck, auto-starting within 45 s on blackout, plus 24 V battery room (SOLAS II-1/43).',
+  co2Room: 'Fixed high-pressure CO₂ fire-extinguishing bank for the engine room, pump room and cargo spaces, with time-delayed pre-discharge alarms (FSS Code ch. 5).',
+  fireHydrants: "Fire hydrants with hoses, nozzles and fire stations along the main deck and accommodation, fed by the pressurised fire main; fireman's outfits in the fire control station.",
+  lifebuoys: 'Lifebuoys with self-igniting lights and self-activating smoke signals on both bridge wings and along the rails (SOLAS III/32).',
+  foamMonitors: 'Fixed deck foam system with monitors and applicators covering the cargo deck, plus fixed gas detection and inert-gas mains (SOLAS II-2/10.8).',
+  waterSpray: 'Water-spray system over the cargo domes, manifolds and superstructure front, and fixed dry-chemical powder monitors at the manifolds (IGC Code ch. 11).',
+  emergencyTowing: 'Emergency towing arrangements forward and aft — strongpoint, chafing chain, fairlead and pre-rigged pick-up gear (SOLAS II-1/3-4).',
   compartment: 'Compartment boundary — watertight bulkheads, inner hull and tank top enclosing the space. Fly the gauntlet camera inside to inspect its framing from the inside out.'
 };
 
@@ -904,6 +927,14 @@ export function getPartTree(vessel) {
       { id: 'sup-funnel', name: 'Funnel & Exhaust Uptakes', kind: 'funnel', desc: DESC.funnel, explode: [0, 1.2, 0] },
       { id: 'sup-mast', name: 'Radar & Signal Mast', kind: 'radarMast', desc: DESC.radarMast, explode: [0, 1.6, 0] },
       { id: 'sup-lifeboats', name: 'Lifeboats & Davits', kind: 'lifeboats', desc: DESC.lifeboats, explode: [0, 0.6, 1] },
+      { id: 'sup-instruments', name: 'Bridge Instruments — ECDIS, ARPA, GMDSS', kind: 'bridgeConsoles', desc: DESC.bridgeConsoles, explode: [0, 1.5, 0] },
+      { id: 'sup-compass', name: 'Magnetic Compass, Gyro Repeaters & Antennas', kind: 'compass', desc: DESC.compass, explode: [0, 1.8, 0] },
+      { id: 'sup-navlights', name: 'Navigation Lights & Whistle', kind: 'navLights', desc: DESC.navLights, explode: [0, 1.8, 0] },
+      { id: 'sup-vdr', name: 'VDR Capsule, EPIRB & SART', kind: 'vdrCapsule', desc: DESC.vdrCapsule, explode: [0, 1.8, 0] },
+      { id: 'sup-liferafts', name: 'Liferafts (Davit & Throw-over)', kind: 'liferafts', desc: DESC.liferafts, explode: [0, 0.6, 1] },
+      { id: 'sup-rescueboat', name: 'Rescue Boat & Davit', kind: 'rescueBoat', desc: DESC.rescueBoat, explode: [0, 0.6, 1] },
+      { id: 'sup-emgen', name: 'Emergency Generator & Battery Room', kind: 'emergencyGen', desc: DESC.emergencyGen, explode: [0, 1.2, 0] },
+      { id: 'sup-co2', name: 'Fixed CO₂ Fire-Extinguishing Room', kind: 'co2Room', desc: DESC.co2Room, explode: [0, 1.2, 0] },
       ...(t === 'lng' ? [{ id: 'sup-reliq', name: 'BOG Reliquefaction Unit', kind: 'reliquefaction', desc: DESC.reliquefaction, explode: [0, 1, 0] }] : [])
     ]
   });
@@ -920,7 +951,14 @@ export function getPartTree(vessel) {
       { id: 'er-generators', name: 'Diesel Generator Sets', kind: 'generators', desc: DESC.generators },
       { id: 'er-shaft', name: 'Shaft Line & Stern Tube', kind: 'shaftLine', desc: DESC.shaftLine },
       { id: 'er-chocks', name: 'Engine Seating — Tank Supports & Chocks', kind: 'tankSupports', desc: DESC.tankSupports },
-      { id: 'er-webs', name: 'Engine Room Web Frames', kind: 'transFrames', desc: DESC.transFrames }
+      { id: 'er-webs', name: 'Engine Room Web Frames', kind: 'transFrames', desc: DESC.transFrames },
+      { id: 'er-boiler', name: 'Auxiliary Boiler & Exhaust-Gas Economiser', kind: 'auxBoiler', desc: DESC.auxBoiler },
+      { id: 'er-purifiers', name: 'Fuel & Lube Oil Purifiers', kind: 'purifiers', desc: DESC.purifiers },
+      { id: 'er-air', name: 'Air Compressors & Starting-Air Receivers', kind: 'airSystem', desc: DESC.airSystem },
+      { id: 'er-ecr', name: 'Engine Control Room & Main Switchboard', kind: 'ecr', desc: DESC.ecr },
+      { id: 'er-pumps', name: 'Fire, Bilge & GS Pumps / Sea Chests', kind: 'erPumps', desc: DESC.erPumps },
+      { id: 'er-ows', name: 'Oily Water Separator & Fresh Water Generator', kind: 'owsFwg', desc: DESC.owsFwg },
+      { id: 'er-fueltanks', name: 'Fuel Settling & Service Tanks', kind: 'fuelTanks', desc: DESC.fuelTanks }
     ]
   });
 
@@ -954,6 +992,7 @@ export function getPartTree(vessel) {
       { id: 'fp-frames', name: 'Forepeak Transverse Frames & Deep Floors', kind: 'forepeakFrames', desc: DESC.forepeakFrames },
       { id: 'fp-bulb', name: 'Bulbous Bow', kind: 'bulbousBow', desc: DESC.bulbousBow, explode: [1, -0.3, 0] },
       { id: 'fp-chain', name: 'Chain Locker & Spurling Pipes', kind: 'chainLocker', desc: DESC.chainLocker },
+      ...(t === 'container' || t === 'roro' || t === 'lng' ? [{ id: 'fp-thruster', name: 'Bow Thruster', kind: 'bowThruster', desc: DESC.bowThruster, explode: [0.6, -0.4, 0] }] : []),
       { id: 'fp-windlass', name: 'Windlass & Mooring Winches', kind: 'windlass', desc: DESC.windlass, explode: [0.4, 1, 0] }
     ]
   });
@@ -969,15 +1008,26 @@ export function getPartTree(vessel) {
       { id: 'ap-bulkhead', name: 'Aft Peak Bulkhead', kind: 'aftPeakBhd', desc: DESC.aftPeakBhd },
       { id: 'ap-sternframe', name: 'Stern Frame & Rudder Horn', kind: 'sternFrame', desc: DESC.sternFrame },
       { id: 'ap-propeller', name: 'Propeller', kind: 'propeller', desc: DESC.propeller, explode: [-1, -0.2, 0] },
-      { id: 'ap-rudder', name: 'Rudder & Steering Gear', kind: 'rudder', desc: DESC.rudder, explode: [-1, -0.4, 0] },
+      { id: 'ap-rudder', name: 'Rudder & Rudder Stock', kind: 'rudder', desc: DESC.rudder, explode: [-1, -0.4, 0] },
+      { id: 'ap-steering', name: 'Steering Gear (Rotary Vane) & Emergency Steering', kind: 'steeringGear', desc: DESC.steeringGear, explode: [-0.6, 0.6, 0] },
+      { id: 'ap-efp', name: 'Emergency Fire Pump', kind: 'efp', desc: DESC.efp, explode: [-0.6, 0.4, -0.6] },
       ...(t === 'roro' ? [{ id: 'ap-quarter-ramp', name: 'Stern Quarter Ramp', kind: 'quarterRamp', desc: DESC.quarterRamp, explode: [-1, 0.2, 0.6] }] : [])
     ]
   });
 
   const outfit = [
     { id: 'out-railings', name: 'Guard Rails & Stanchions', kind: 'railings', desc: 'Deck guard rails (1 m min.) on stanchions along the deck edge and accommodation decks, per ICLL Reg. 25.', explode: [0, 0.5, 0] },
-    { id: 'out-mooring', name: 'Aft Mooring Winches & Bollards', kind: 'mooring', desc: 'Aft mooring deck: split-drum mooring winches, double bollards and Panama chocks; MBL-rated lines per OCIMF MEG4.', explode: [-0.4, 1, 0] }
+    { id: 'out-mooring', name: 'Aft Mooring Winches & Bollards', kind: 'mooring', desc: 'Aft mooring deck: split-drum mooring winches, double bollards and Panama chocks; MBL-rated lines per OCIMF MEG4.', explode: [-0.4, 1, 0] },
+    { id: 'out-hydrants', name: 'Fire Hydrants, Hoses & Fire Stations', kind: 'fireHydrants', desc: DESC.fireHydrants, explode: [0, 0.8, 0] },
+    { id: 'out-lifebuoys', name: 'Lifebuoys with MOB Lights & Smoke', kind: 'lifebuoys', desc: DESC.lifebuoys, explode: [0, 0.8, 0.6] }
   ];
+  if (t === 'vlcc' || t === 'chemical') {
+    outfit.push(
+      { id: 'out-foam', name: 'Deck Foam Monitors & Gas Detection', kind: 'foamMonitors', desc: DESC.foamMonitors, explode: [0, 1.2, 0] },
+      { id: 'out-eta', name: 'Emergency Towing Arrangements (Fwd & Aft)', kind: 'emergencyTowing', desc: DESC.emergencyTowing, explode: [0, 1, 0] }
+    );
+  }
+  if (t === 'lng') outfit.push({ id: 'out-waterspray', name: 'Water Spray & Dry-Powder System', kind: 'waterSpray', desc: DESC.waterSpray, explode: [0, 1.2, 0] });
   if (t === 'vlcc' || t === 'chemical') {
     outfit.push(
       { id: 'out-piping', name: 'Cargo Manifold & Deck Piping', kind: 'deckPiping', desc: 'Cargo mains, vapour return and crossover manifold at midships (OCIMF manifold recommendations), on pipe supports with catwalk above.', explode: [0, 1.2, 0] },

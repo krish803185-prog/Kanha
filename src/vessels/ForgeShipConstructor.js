@@ -13,7 +13,7 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { createHologramObject, setHologramAlert } from '../shaders/AegisHologramShader.js';
+import { createHologramObject, createHologramLineMaterial, setHologramAlert } from '../shaders/AegisHologramShader.js';
 import { HULL_LAYOUTS, getPartTree, seededRandom } from './ArmadaCodexSchema.js';
 
 export const MODEL_LENGTH = 12;
@@ -470,7 +470,9 @@ const STYLE_OF_KIND = {
   sideShellPort: 'shell', sideShellStbd: 'shell', bottomShell: 'shell', bowShell: 'shell', sternShell: 'shell', sheerPort: 'shell', sheerStbd: 'shell',
   weatherDeck: 'deck', compartment: 'compartment', containerStack: 'volume', mainEngine: 'machinery', generators: 'machinery', cargoPumps: 'machinery',
   strippingPump: 'machinery', deepwellPump: 'machinery', propeller: 'machinery', rudder: 'machinery', windlass: 'machinery', reliquefaction: 'machinery',
-  heatingCoils: 'pipe', deckPiping: 'pipe', trunkDeck: 'structure', primaryMembrane: 'compartment', secondaryMembrane: 'compartment', insulation: 'structure'
+  heatingCoils: 'pipe', deckPiping: 'pipe', trunkDeck: 'structure', primaryMembrane: 'compartment', secondaryMembrane: 'compartment', insulation: 'structure',
+  auxBoiler: 'machinery', purifiers: 'machinery', airSystem: 'machinery', ecr: 'machinery', erPumps: 'machinery', owsFwg: 'machinery', fuelTanks: 'structure',
+  steeringGear: 'machinery', efp: 'machinery', bowThruster: 'machinery', bridgeConsoles: 'machinery', emergencyGen: 'machinery', fireHydrants: 'pipe', waterSpray: 'pipe'
 };
 
 /** Kinds hidden in the Mode B twin (interior framing is Mode C content). */
@@ -478,7 +480,8 @@ const INTERNAL_KINDS = new Set([
   'transFrames', 'longFrames', 'tankSupports', 'centerGirder', 'sideGirders', 'floors', 'marginPlate', 'tankTop', 'pantingStringers', 'pantingBeams',
   'forepeakFrames', 'chainLocker', 'aftPeakBhd', 'sternFrame', 'cellGuides', 'swashBhd', 'corrugatedBhd', 'deckLongStiff', 'heatingCoils', 'deepwellPump',
   'suctionBell', 'stools', 'doubleSkin', 'secondaryMembrane', 'insulation', 'cryoSupports', 'rackingFrames', 'collisionBhd', 'deckBeams', 'deckLongitudinals',
-  'mainEngine', 'generators', 'shaftLine', 'cargoPumps', 'strippingPump', 'primaryMembrane', 'carDecks', 'topsideTank', 'hopperTank', 'torsionBox'
+  'mainEngine', 'generators', 'shaftLine', 'cargoPumps', 'strippingPump', 'primaryMembrane', 'carDecks', 'topsideTank', 'hopperTank', 'torsionBox',
+  'auxBoiler', 'purifiers', 'airSystem', 'ecr', 'erPumps', 'owsFwg', 'fuelTanks', 'steeringGear', 'efp', 'bowThruster'
 ]);
 
 function engineCylinders(vessel) {
@@ -1052,6 +1055,113 @@ class PartBuilder {
         ]);
       }
 
+      /* ---------------- engine-room machinery ---------------- */
+      case 'auxBoiler':
+      case 'purifiers':
+      case 'airSystem':
+      case 'ecr':
+      case 'erPumps':
+      case 'owsFwg':
+      case 'fuelTanks':
+        return this.machinery(k, zone);
+
+      /* ---------------- steering, emergency & thrusters ---------------- */
+      case 'steeringGear': {
+        const x = fx(-0.004);
+        const y = H.T * 1.35;
+        const twin = this.t === 'lng';
+        const geos = [];
+        for (const z of twin ? [-0.18 * B, 0.18 * B] : [0]) {
+          geos.push(cyl(0.035 * B, 0.03 * D, x, y + 0.015 * D, z, 'y', 16)); // rotary-vane actuator
+          geos.push(box(0.025 * L, 0.025 * D, 0.06 * B, x + 0.02 * L, y + 0.012 * D, z)); // power units
+          geos.push(cyl(0.01 * B, 0.05 * B, x + 0.02 * L, y + 0.03 * D, z + 0.04 * B, 'z', 8)); // oil tank
+        }
+        geos.push(box(0.05 * L, 0.004, 0.3 * B, x + 0.01 * L, y, 0)); // steering-gear flat
+        return merge(geos);
+      }
+      case 'efp': {
+        const x = fx(0.03);
+        const y = H.T * 1.25;
+        return merge([box(0.012 * L, 0.03 * D, 0.03 * B, x, y + 0.015 * D, -0.22 * B), cyl(0.012 * B, 0.04 * D, x + 0.01 * L, y + 0.02 * D, -0.22 * B, 'y', 10), cyl(0.004, H.T * 0.9, x + 0.01 * L, y - H.T * 0.45, -0.22 * B, 'y', 6)]);
+      }
+      case 'bowThruster': {
+        const f = 0.955;
+        const y = H.T * 0.45;
+        const w = H.halfBreadth(f, y) * 2;
+        return merge([cyl(0.022 * B, w, fx(f), y, 0, 'z', 16), box(0.02 * L, 0.04 * D, 0.06 * B, fx(f), y + 0.05 * D, 0), cyl(0.005, 0.04 * D, fx(f), y + 0.025 * D, 0, 'y', 6)]);
+      }
+
+      /* ---------------- deck safety equipment ---------------- */
+      case 'fireHydrants': {
+        const geos = [];
+        for (let i = 1; i < 16; i++) {
+          const f = lerp(0.06, 0.94, i / 16);
+          const y = H.deckY(f);
+          for (const sd of [-1, 1]) {
+            const z = sd * (H.halfBreadth(f, y) - 0.045 * B);
+            geos.push(cyl(0.0035, 0.9 * S, fx(f), y + 0.45 * S, z, 'y', 6)); // hydrant riser
+            if (i % 3 === 0) geos.push(box(0.7 * S, 0.9 * S, 0.35 * S, fx(f) + 1.0 * S, y + 0.45 * S, z)); // hose box
+          }
+        }
+        // fire main along both sides
+        for (const sd of [-1, 1]) geos.push(cyl(0.003, fx(0.94) - fx(0.06), (fx(0.06) + fx(0.94)) / 2, D + 0.15 * S, sd * (H.hB - 0.05 * B), 'x', 6));
+        return merge(geos);
+      }
+      case 'lifebuoys': {
+        const geos = [];
+        const ring = (x, y, z, sd) => {
+          const g = new THREE.TorusGeometry(0.38 * S, 0.1 * S, 6, 14);
+          g.translate(x, y, z + sd * 0.05 * S);
+          return g;
+        };
+        for (const f of [0.06, 0.25, 0.5, 0.75, 0.93]) {
+          const y = H.deckY(f) + 1.1 * S;
+          for (const sd of [-1, 1]) geos.push(ring(fx(f), y, sd * (H.halfBreadth(f, H.deckY(f)) - 0.004), sd));
+        }
+        return merge(geos);
+      }
+      case 'foamMonitors': {
+        const geos = [];
+        const [c0, c1] = layout.cargo;
+        for (let i = 0; i <= 4; i++) {
+          const f = lerp(c0 + 0.01, c1 - 0.02, i / 4);
+          const sd = i % 2 ? 1 : -1;
+          const x = fx(f);
+          const z = sd * 0.18 * B;
+          geos.push(box(1.6 * S, 3.2 * S, 1.6 * S, x, D + 1.6 * S, z)); // monitor platform
+          geos.push(cyl(0.25 * S, 1.6 * S, x, D + 4.0 * S, z, 'y', 8));
+          geos.push(beam(new THREE.Vector3(x, D + 4.6 * S, z), new THREE.Vector3(x + 2.2 * S, D + 5.4 * S, z), 0.35 * S, 0.35 * S)); // nozzle
+        }
+        geos.push(cyl(0.004, fx(c1) - fx(c0), (fx(c0) + fx(c1)) / 2, D + 0.9 * S, -0.12 * B, 'x', 6)); // foam main
+        // gas-detection sampling heads on each tank
+        for (let i = 0; i < layout.cargoCount; i++) geos.push(cyl(0.12 * S, 1.1 * S, fx(lerp(c0, c1, (i + 0.5) / layout.cargoCount)), D + 0.55 * S, 0.24 * B, 'y', 6));
+        return merge(geos);
+      }
+      case 'waterSpray': {
+        const geos = [];
+        const [c0, c1] = layout.cargo;
+        for (const sd of [-1, 1]) geos.push(cyl(0.003, fx(c1) - fx(c0), (fx(c0) + fx(c1)) / 2, D + 0.04 * D, sd * 0.2 * B, 'x', 6));
+        for (let i = 0; i < 18; i++) {
+          const x = lerp(fx(c0), fx(c1), (i + 0.5) / 18);
+          for (const sd of [-1, 1]) geos.push(cyl(0.0025, 0.6 * S, x, D + 0.04 * D + 0.3 * S, sd * 0.2 * B, 'y', 5));
+        }
+        for (const sd of [-1, 1]) {
+          const x = fx(0.5);
+          geos.push(box(1.8 * S, 2.6 * S, 1.8 * S, x - 0.02 * L, D + 1.3 * S, sd * 0.36 * B), beam(new THREE.Vector3(x - 0.02 * L, D + 2.8 * S, sd * 0.36 * B), new THREE.Vector3(x - 0.02 * L + 1.8 * S, D + 3.6 * S, sd * 0.4 * B), 0.3 * S, 0.3 * S));
+        }
+        return merge(geos);
+      }
+      case 'emergencyTowing': {
+        const geos = [];
+        for (const [f, sgn] of [[0.975, 1], [0.012, -1]]) {
+          const y = H.deckY(f);
+          geos.push(box(2.2 * S, 1.4 * S, 2.2 * S, fx(f) - sgn * 2 * S, y + 0.7 * S, 0)); // strongpoint
+          geos.push(cyl(0.6 * S, 1.8 * S, fx(f) - sgn * 5 * S, y + 0.9 * S, 0, 'z', 10)); // pick-up drum
+          geos.push(box(1.2 * S, 1.2 * S, 1.2 * S, fx(f) - sgn * 0.3 * S, y + 0.6 * S, 0)); // fairlead
+        }
+        return merge(geos);
+      }
+
       /* ---------------- superstructure ---------------- */
       case 'accommodation':
       case 'wheelhouse':
@@ -1060,6 +1170,14 @@ class PartBuilder {
       case 'radarMast':
       case 'lifeboats':
       case 'reliquefaction':
+      case 'bridgeConsoles':
+      case 'compass':
+      case 'navLights':
+      case 'vdrCapsule':
+      case 'liferafts':
+      case 'rescueBoat':
+      case 'emergencyGen':
+      case 'co2Room':
         return this.superstructure(k);
 
       /* ---------------- outfitting ---------------- */
@@ -1151,6 +1269,85 @@ class PartBuilder {
     }
   }
 
+  /** Engine-room auxiliaries laid out around the main engine. */
+  machinery(kind, zone) {
+    const H = this.H;
+    const { D, B, L, S } = H;
+    const fx = H.fx;
+    const fm = (zone.f0 + zone.f1) / 2;
+    const x0 = fx(zone.f0);
+    const len = fx(zone.f1) - x0;
+    const yb = zone.ybAt(fm);
+    const yt = zone.yt(fm);
+    const flat = yb + (yt - yb) * 0.42; // upper engine-room flat
+    const geos = [];
+    switch (kind) {
+      case 'auxBoiler': {
+        const x = x0 + len * 0.16;
+        const z = 0.3 * B;
+        const h = 0.2 * D;
+        geos.push(cyl(0.035 * B, h, x, flat + h / 2, z, 'y', 16), box(0.05 * B, 0.03 * D, 0.06 * B, x + 0.04 * B, flat + 0.06 * D, z)); // boiler + burner
+        geos.push(box(0.07 * B, 0.08 * D, 0.07 * B, x, yt - 0.06 * D, 0.12 * B)); // economiser in casing
+        geos.push(cyl(0.006, yt - flat - h, x, flat + h + (yt - flat - h) / 2, z, 'y', 6)); // uptake
+        geos.push(box(len * 0.22, 0.004, 0.22 * B, x, flat, z - 0.02 * B)); // flat plating
+        break;
+      }
+      case 'purifiers': {
+        const x = x0 + len * 0.72;
+        for (let i = 0; i < 4; i++) {
+          geos.push(cyl(0.012 * B, 0.045 * D, x + i * 0.014 * L, flat + 0.0225 * D, -0.3 * B, 'y', 12));
+          geos.push(box(0.022 * B, 0.015 * D, 0.03 * B, x + i * 0.014 * L, flat + 0.05 * D, -0.3 * B)); // motor
+        }
+        geos.push(box(0.06 * L, 0.004, 0.12 * B, x + 0.021 * L, flat, -0.3 * B));
+        break;
+      }
+      case 'airSystem': {
+        const x = x0 + len * 0.18;
+        for (let i = 0; i < 2; i++) {
+          geos.push(cyl(0.018 * B, 0.05 * L, x, yb + 0.04 * D + i * 0.045 * B, -0.32 * B, 'x', 14)); // 30-bar receivers
+          geos.push(box(0.02 * L, 0.035 * D, 0.04 * B, x + 0.05 * L, yb + 0.02 * D, -0.3 * B + i * 0.06 * B)); // compressors
+        }
+        break;
+      }
+      case 'ecr': {
+        const x = x0 + len * 0.78;
+        const w = 0.24 * B;
+        const h = 0.09 * D;
+        const z = 0.24 * B;
+        geos.push(box(len * 0.2, h, w, x, flat + h / 2, z)); // control room
+        geos.push(box(0.002, h * 0.35, w * 0.9, x - len * 0.1 - 0.002, flat + h * 0.6, z)); // window band
+        for (let i = 0; i < 6; i++) geos.push(box(len * 0.025, h * 0.7, 0.01 * B, x - len * 0.07 + i * len * 0.03, flat + h * 0.38, z + w / 2 - 0.012 * B)); // switchboard panels
+        geos.push(box(len * 0.08, h * 0.3, 0.05 * B, x, flat + h * 0.18, z - 0.04 * B)); // control console
+        break;
+      }
+      case 'erPumps': {
+        const x = x0 + len * 0.45;
+        for (let i = 0; i < 4; i++) {
+          const px = x + i * 0.02 * L;
+          geos.push(cyl(0.012 * B, 0.05 * D, px, yb + 0.025 * D, 0.34 * B, 'y', 10), box(0.02 * B, 0.025 * D, 0.02 * B, px, yb + 0.065 * D, 0.34 * B));
+        }
+        geos.push(box(0.05 * L, 0.03 * D, 0.03 * B, x + 0.03 * L, yb - 0.02 * D, 0.4 * B)); // sea chest
+        geos.push(cyl(0.008, 0.08 * L, x + 0.03 * L, yb + 0.08 * D, 0.34 * B, 'x', 8)); // fire main header
+        break;
+      }
+      case 'owsFwg': {
+        const x = x0 + len * 0.5;
+        geos.push(box(0.025 * L, 0.04 * D, 0.05 * B, x, yb + 0.02 * D, -0.36 * B));
+        geos.push(cyl(0.02 * B, 0.07 * D, x + 0.03 * L, yb + 0.035 * D, -0.36 * B, 'y', 14), cyl(0.012 * B, 0.03 * D, x + 0.03 * L, yb + 0.085 * D, -0.36 * B, 'y', 10));
+        break;
+      }
+      case 'fuelTanks': {
+        const x = fx(zone.f1) - len * 0.08;
+        for (const sd of [-1, 1]) geos.push(box(len * 0.12, 0.16 * D, 0.16 * B, x, flat + 0.09 * D, sd * 0.3 * B));
+        geos.push(box(len * 0.12, 0.12 * D, 0.08 * B, x, flat + 0.07 * D, 0)); // MGO service
+        break;
+      }
+      default:
+        return null;
+    }
+    return merge(geos);
+  }
+
   superstructure(kind) {
     const H = this.H;
     const { D, B, S, L } = H;
@@ -1232,6 +1429,78 @@ class PartBuilder {
         geos.push(beam(new THREE.Vector3((xA + xF) / 2 - 3 * S, y - tierH, s * width / 2), new THREE.Vector3((xA + xF) / 2 - 3 * S, y + 1.8 * S, s * (width / 2 + 2.8 * S)), 0.004, 0.004));
         geos.push(beam(new THREE.Vector3((xA + xF) / 2 + 3 * S, y - tierH, s * width / 2), new THREE.Vector3((xA + xF) / 2 + 3 * S, y + 1.8 * S, s * (width / 2 + 2.8 * S)), 0.004, 0.004));
       }
+      return merge(geos);
+    }
+    const wy = yTop + tierH * 0.6; // wheelhouse deck centre
+    const roofY = yTop + tierH * 1.22;
+    if (kind === 'bridgeConsoles') {
+      const geos = [];
+      const xc = wheelX + wheelLen * 0.32;
+      const n = 7;
+      for (let i = 0; i < n; i++) {
+        const z = lerp(-width * 0.38, width * 0.38, i / (n - 1));
+        geos.push(box(1.2 * S, 1.0 * S, 1.9 * S, xc, wy - tierH * 0.6 + 0.5 * S, z)); // console
+        geos.push(box(0.12 * S, 0.7 * S, 1.6 * S, xc - 0.35 * S, wy - tierH * 0.6 + 1.35 * S, z, 0, 0, -0.35)); // ECDIS / radar screen
+      }
+      geos.push(box(0.8 * S, 1.2 * S, 0.8 * S, xc - 2.2 * S, wy - tierH * 0.6 + 0.6 * S, 0)); // helm / steering stand
+      geos.push(box(2.0 * S, 1.0 * S, 1.2 * S, wheelX - wheelLen * 0.2, wy - tierH * 0.6 + 0.5 * S, -width * 0.35)); // GMDSS / chart table
+      return merge(geos);
+    }
+    if (kind === 'compass') {
+      const geos = [cyl(0.35 * S, 1.3 * S, wheelX, roofY + 0.65 * S, 0, 'y', 12), new THREE.SphereGeometry(0.45 * S, 10, 6).translate(wheelX, roofY + 1.45 * S, 0)];
+      for (const sd of [-1, 1]) geos.push(cyl(0.25 * S, 1.1 * S, wheelX + wheelLen * 0.22, wy - tierH * 0.1, sd * (B / 2 - 0.6 * S), 'y', 10)); // wing repeaters
+      for (const [dz, h] of [[0.12, 3.5], [-0.12, 3.0], [0.2, 2.2]]) geos.push(cyl(0.08 * S, h * S, wheelX - wheelLen * 0.25, roofY + (h / 2) * S, dz * width, 'y', 6)); // GNSS / AIS / wind sensor
+      return merge(geos);
+    }
+    if (kind === 'navLights') {
+      const geos = [];
+      const mastTop = yTop + tierH * 1.25 + 0.18 * D;
+      geos.push(box(0.4 * S, 0.5 * S, 0.4 * S, wheelX, mastTop + 0.4 * S, 0)); // aft masthead light
+      geos.push(cyl(0.12 * S, 3.0 * S, fx(0.985), H.deckY(0.985) + 1.5 * S, 0, 'y', 6), box(0.4 * S, 0.5 * S, 0.4 * S, fx(0.985), H.deckY(0.985) + 3.2 * S, 0)); // fwd mast + light
+      for (const sd of [-1, 1]) geos.push(box(0.5 * S, 0.5 * S, 0.3 * S, wheelX + wheelLen * 0.22, wy + tierH * 0.35, sd * (B / 2 + 0.1 * S))); // sidelights
+      geos.push(box(0.4 * S, 0.4 * S, 0.3 * S, fx(0.002), H.deckY(0.002) + 1.5 * S, 0)); // sternlight
+      geos.push(cyl(0.18 * S, 0.9 * S, wheelX - 0.6 * S, mastTop - 1.5 * S, 0.25 * S, 'x', 8)); // whistle
+      return merge(geos);
+    }
+    if (kind === 'vdrCapsule') {
+      return merge([
+        cyl(0.45 * S, 0.9 * S, wheelX - wheelLen * 0.35, roofY + 0.45 * S, -width * 0.3, 'y', 12), // VDR float-free capsule
+        box(0.3 * S, 0.7 * S, 0.25 * S, wheelX + wheelLen * 0.25, wy + tierH * 0.2, B / 2 - 0.4 * S), // EPIRB
+        box(0.2 * S, 0.5 * S, 0.2 * S, wheelX + wheelLen * 0.1, wy + tierH * 0.15, -(B / 2 - 0.4 * S)) // SART
+      ]);
+    }
+    if (kind === 'liferafts') {
+      const geos = [];
+      const raft = (x, y, z) => {
+        const g = new THREE.CapsuleGeometry(0.45 * S, 1.2 * S, 3, 8);
+        g.rotateZ(Math.PI / 2);
+        g.translate(x, y, z);
+        return g;
+      };
+      const y = yDeck + tierH * (this.t === 'container' ? 3.5 : 2.5) + 0.6 * S;
+      for (const sd of [-1, 1]) for (let i = 0; i < 3; i++) geos.push(raft(xA + len * 0.15 + i * 2.4 * S, y - tierH * 0.9, sd * (width / 2 + 0.9 * S)));
+      geos.push(raft(fx(0.95), H.deckY(0.95) + 0.6 * S, 0.25 * B)); // throw-over raft forward
+      return merge(geos);
+    }
+    if (kind === 'rescueBoat') {
+      const boat = new THREE.CapsuleGeometry(0.5, 1.2, 4, 8);
+      boat.rotateZ(Math.PI / 2);
+      boat.scale(3.0 * S, 1.4 * S, 1.6 * S);
+      const x = xA - 2 * S;
+      const z = width / 2 + 1.5 * S;
+      boat.translate(x, yDeck + 2.4 * S, z);
+      return merge([boat, beam(new THREE.Vector3(x - 2 * S, yDeck, width / 2), new THREE.Vector3(x - 2 * S, yDeck + 4.5 * S, z), 0.2 * S, 0.2 * S)]);
+    }
+    if (kind === 'emergencyGen') {
+      const x = xA + len * 0.2;
+      return merge([box(len * 0.25, tierH * 0.9, width * 0.3, x, yTop + tierH * 0.45 - tierH, -width * 0.3), cyl(0.2 * S, 2.4 * S, x, yTop + 0.8 * S, -width * 0.3, 'y', 8)]);
+    }
+    if (kind === 'co2Room') {
+      const geos = [];
+      const x = xA - 3.5 * S;
+      const z = -width * 0.32;
+      geos.push(box(5 * S, tierH * 0.95, 4 * S, x, yDeck + tierH * 0.48, z));
+      for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) geos.push(cyl(0.12 * S, 1.6 * S, x - 1.8 * S + i * 1.2 * S, yDeck + 0.8 * S, z - 1.2 * S + j * 1.2 * S, 'y', 6));
       return merge(geos);
     }
     if (kind === 'reliquefaction') {
@@ -1457,7 +1726,33 @@ export function buildGantryCrane({ S, slots = [], containerDims, onPlace } = {})
   state.from.copy(pos);
   state.to.copy(target(0));
 
+  let active = true;
+  const park = new THREE.Vector3(0, travelY, gauge * 0.5);
+  function setActive(on) {
+    if (on && !active) {
+      // resume from the parked pose with a fresh lift cycle
+      state.phase = 5;
+      state.t = 0;
+      state.from.copy(pos);
+      state.to.copy(target(5));
+    }
+    active = on;
+  }
+
   function update(dt) {
+    if (!active) {
+      pos.lerp(park, 1 - Math.exp(-dt * 1.5));
+      spreader.position.copy(pos);
+      trolley.position.z = pos.z;
+      load.visible = false;
+      const p = ropeGeo.attributes.position;
+      p.setXYZ(0, -1.5 * S, H - 2.5 * S, pos.z);
+      p.setXYZ(1, -1.5 * S, pos.y + 0.6 * S, pos.z);
+      p.setXYZ(2, 1.5 * S, H - 2.5 * S, pos.z);
+      p.setXYZ(3, 1.5 * S, pos.y + 0.6 * S, pos.z);
+      p.needsUpdate = true;
+      return;
+    }
     state.t += dt;
     const d = durations[state.phase];
     const k = Math.min(state.t / d, 1);
@@ -1493,7 +1788,7 @@ export function buildGantryCrane({ S, slots = [], containerDims, onPlace } = {})
     }
   }
 
-  return { group, update, dims: { gauge, outreach, height: H, backreach } };
+  return { group, update, setActive, dims: { gauge, outreach, height: H, backreach } };
 }
 
 /* ------------------------------------------------------------------ */
@@ -1559,6 +1854,186 @@ export function buildChicksanArm({ S, riser = 16 * S, inboard = 14 * S, outboard
 }
 
 /* ------------------------------------------------------------------ */
+/*  Port terminals (whole port around the berth)                       */
+/* ------------------------------------------------------------------ */
+const PORT_STYLE = {
+  land: { opacity: 0.05, wireOpacity: 0.22, wireMode: 'edges', edgeThreshold: 30 },
+  stacks: { opacity: 0.02, wireOpacity: 0.12, wireMode: 'edges', edgeThreshold: 30, volume: true },
+  steel: { opacity: 0.1, wireOpacity: 0.4, wireMode: 'edges', edgeThreshold: 25 },
+  building: { opacity: 0.08, wireOpacity: 0.3, wireMode: 'edges', edgeThreshold: 30 }
+};
+
+function terminalTruck(S) {
+  return merge([
+    box(2.5 * S, 2.6 * S, 2.5 * S, 6.2 * S, 1.6 * S, 0), // cab
+    box(13 * S, 0.5 * S, 2.4 * S, -1.5 * S, 0.8 * S, 0), // chassis
+    box(12.1 * S, 2.6 * S, 2.4 * S, -1.5 * S, 2.4 * S, 0) // FEU on the chassis
+  ]);
+}
+
+/**
+ * Container terminal in the ship-aligned berth frame (X along the quay,
+ * +Z inland). Our berth is centred on x = 0.
+ * @returns {{group:THREE.Group, trucks:Array, idleCranes:Array}}
+ */
+export function buildContainerTerminal({ S, L, quayTop, quayZ0, containerDims, rand = Math.random }) {
+  const group = new THREE.Group();
+  group.name = 'container-terminal';
+  const x0 = -1.35 * L;
+  const x1 = 2.55 * L;
+  const depth = 430 * S;
+  const land = createHologramObject(new THREE.BoxGeometry(x1 - x0, quayTop + 14 * S, depth), { name: 'land', ...PORT_STYLE.land });
+  land.position.set((x0 + x1) / 2, quayTop - (quayTop + 14 * S) / 2, quayZ0 + depth / 2);
+  group.add(land);
+
+  // Crane rails + quay lane markings along the whole quay
+  const rails = [];
+  for (const z of [quayZ0 + 2 * S, quayZ0 + 32.5 * S]) rails.push(new THREE.Vector3(x0, quayTop + 0.002, z), new THREE.Vector3(x1, quayTop + 0.002, z));
+  for (const z of [quayZ0 + 40 * S, quayZ0 + 48 * S, quayZ0 + 56 * S]) {
+    for (let x = x0; x < x1; x += 12 * S) rails.push(new THREE.Vector3(x, quayTop + 0.002, z), new THREE.Vector3(x + 6 * S, quayTop + 0.002, z));
+  }
+  group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(rails), createHologramLineMaterial({ opacity: 0.45 })));
+
+  // Stacked container yard: blocks of 8 FEU bays × 6 rows, lanes between.
+  const cl = containerDims?.cl ?? 12.19 * S;
+  const cw = containerDims?.cw ?? 2.44 * S;
+  const ch = containerDims?.ch ?? 2.59 * S;
+  const stacks = [];
+  const rtg = [];
+  const blockLen = 8 * (cl + 0.8 * S);
+  const blockW = 6 * cw * 1.05;
+  const zRows = [80, 125, 170, 215, 260].map((m) => quayZ0 + m * S);
+  for (let bx = x0 + 30 * S; bx + blockLen < x1 - 120 * S; bx += blockLen + 22 * S) {
+    for (const bz of zRows) {
+      for (let b = 0; b < 8; b++) {
+        for (let r = 0; r < 6; r++) {
+          const tiers = 1 + Math.floor(rand() * 5);
+          const x = bx + b * (cl + 0.8 * S) + cl / 2;
+          const z = bz + r * cw * 1.05;
+          for (let t = 0; t < tiers; t++) stacks.push(box(cl * 0.985, ch * 0.97, cw * 0.95, x, quayTop + ch * (t + 0.5), z));
+        }
+      }
+      // RTG gantry straddling the block
+      const gx = bx + blockLen * (0.25 + rand() * 0.5);
+      const h = ch * 6.5;
+      for (const dz of [-3 * S, blockW + 3 * S]) {
+        rtg.push(beam(new THREE.Vector3(gx - 3 * S, quayTop, bz + dz), new THREE.Vector3(gx - 3 * S, quayTop + h, bz + dz), 0.8 * S));
+        rtg.push(beam(new THREE.Vector3(gx + 3 * S, quayTop, bz + dz), new THREE.Vector3(gx + 3 * S, quayTop + h, bz + dz), 0.8 * S));
+        rtg.push(beam(new THREE.Vector3(gx - 3 * S, quayTop + h, bz + dz), new THREE.Vector3(gx + 3 * S, quayTop + h, bz + dz), 0.8 * S));
+      }
+      rtg.push(box(1 * S, 1 * S, blockW + 7 * S, gx - 3 * S, quayTop + h, bz + blockW / 2), box(1 * S, 1 * S, blockW + 7 * S, gx + 3 * S, quayTop + h, bz + blockW / 2));
+      rtg.push(box(4 * S, 1.6 * S, 3 * S, gx, quayTop + h - 1.5 * S, bz + blockW * rand()));
+    }
+  }
+  group.add(createHologramObject(merge(stacks), { name: 'yard-stacks', ...PORT_STYLE.stacks }));
+  group.add(createHologramObject(merge(rtg), { name: 'rtg', ...PORT_STYLE.steel }));
+
+  // Light masts along the lanes
+  const masts = [];
+  for (let x = x0 + 40 * S; x < x1; x += 110 * S) {
+    for (const z of [quayZ0 + 66 * S, quayZ0 + 300 * S]) {
+      masts.push(cyl(0.35 * S, 35 * S, x, quayTop + 17.5 * S, z, 'y', 6), box(4 * S, 1 * S, 1.5 * S, x, quayTop + 35 * S, z));
+    }
+  }
+  group.add(createHologramObject(merge(masts), { name: 'light-masts', ...PORT_STYLE.steel }));
+
+  // Buildings: admin / control tower, gate complex with canopy, workshop
+  const bld = [
+    box(60 * S, 22 * S, 28 * S, x1 - 70 * S, quayTop + 11 * S, quayZ0 + 330 * S),
+    box(14 * S, 46 * S, 14 * S, x1 - 110 * S, quayTop + 23 * S, quayZ0 + 330 * S),
+    box(22 * S, 6 * S, 18 * S, x1 - 110 * S, quayTop + 49 * S, quayZ0 + 330 * S),
+    box(90 * S, 12 * S, 40 * S, x0 + 70 * S, quayTop + 6 * S, quayZ0 + 335 * S)
+  ];
+  for (let i = 0; i < 8; i++) bld.push(box(3 * S, 4 * S, 3 * S, x1 - 200 * S + i * 10 * S, quayTop + 2 * S, quayZ0 + 400 * S));
+  bld.push(box(90 * S, 1 * S, 22 * S, x1 - 165 * S, quayTop + 7 * S, quayZ0 + 400 * S)); // gate canopy
+  group.add(createHologramObject(merge(bld), { name: 'port-buildings', ...PORT_STYLE.building }));
+
+  // Idle STS cranes on the rest of the quay + a feeder at the second berth
+  const idleCranes = [];
+  for (const x of [-1.05 * L, 1.15 * L, 1.75 * L, 2.25 * L]) {
+    const c = buildGantryCrane({ S, slots: [], containerDims });
+    c.setActive(false);
+    c.group.position.set(x, quayTop, quayZ0 + 2 * S);
+    group.add(c.group);
+    idleCranes.push(c);
+  }
+  const feeder = createHologramObject(buildVesselIcon('container', 190 * S), { name: 'feeder', ...PORT_STYLE.steel });
+  feeder.position.set(2.0 * L, 0, quayZ0 - 16 * S);
+  feeder.scale.y = 1.2;
+  group.add(feeder);
+
+  // Terminal trucks running the quay lanes
+  const trucks = [];
+  const truckGeo = terminalTruck(S);
+  for (let i = 0; i < 9; i++) {
+    const t = createHologramObject(truckGeo.clone(), { name: 'truck', ...PORT_STYLE.steel });
+    const lane = i % 3;
+    t.position.set(lerp(x0, x1, rand()), quayTop, quayZ0 + (44 + lane * 8) * S);
+    const dir = lane === 1 ? -1 : 1;
+    t.rotation.y = dir > 0 ? 0 : Math.PI;
+    group.add(t);
+    trucks.push({ obj: t, dir, speed: (8 + rand() * 6) * S, x0, x1 });
+  }
+  return { group, trucks, idleCranes };
+}
+
+/** Oil / chemical / LNG terminal: jetty head, trestle, pipe rack and tank farm. */
+export function buildLiquidTerminal({ S, L, quayTop, jettyZ, manifoldX, lng = false, rand = Math.random }) {
+  const group = new THREE.Group();
+  group.name = 'liquid-terminal';
+  const shoreZ = jettyZ + 160 * S;
+  const depth = 520 * S;
+  const land = createHologramObject(new THREE.BoxGeometry(L * 3.6, quayTop + 14 * S, depth), { name: 'land', ...PORT_STYLE.land });
+  land.position.set(manifoldX, quayTop - (quayTop + 14 * S) / 2, shoreZ + depth / 2);
+  group.add(land);
+
+  // Jetty head with breasting / mooring dolphins and the trestle to shore
+  const jetty = [box(46 * S, quayTop + 10 * S, 18 * S, manifoldX, quayTop - (quayTop + 10 * S) / 2, jettyZ)];
+  for (const dx of [-0.42, -0.22, 0.22, 0.42]) jetty.push(box(10 * S, quayTop + 10 * S, 10 * S, manifoldX + dx * L, quayTop - (quayTop + 10 * S) / 2, jettyZ - 2 * S));
+  jetty.push(box(5 * S, 1.2 * S, shoreZ - jettyZ, manifoldX, quayTop, (jettyZ + shoreZ) / 2));
+  group.add(createHologramObject(merge(jetty), { name: 'jetty', ...PORT_STYLE.building }));
+  const walks = [];
+  for (const dx of [-0.42, -0.22, 0.22, 0.42]) walks.push(new THREE.Vector3(manifoldX, quayTop + 1 * S, jettyZ), new THREE.Vector3(manifoldX + dx * L, quayTop + 1 * S, jettyZ - 2 * S));
+  group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(walks), createHologramLineMaterial({ opacity: 0.4 })));
+
+  // Pipe rack from the jetty along the trestle into the tank farm
+  const rack = [];
+  for (let z = jettyZ + 10 * S; z < shoreZ + 120 * S; z += 12 * S) rack.push(box(6 * S, 4 * S, 0.6 * S, manifoldX + 6 * S, quayTop + 2 * S, z));
+  for (let i = 0; i < 4; i++) rack.push(cyl((0.5 + i * 0.12) * S, shoreZ + 110 * S - jettyZ, manifoldX + 4 * S + i * 1.3 * S, quayTop + 4.5 * S, (jettyZ + shoreZ + 120 * S) / 2, 'z', 8));
+  group.add(createHologramObject(merge(rack), { name: 'pipe-rack', ...PORT_STYLE.steel }));
+
+  // Tank farm (floating-roof crude tanks / LNG full-containment tanks) in bunds
+  const tanks = [];
+  const bunds = [];
+  const r = (lng ? 42 : 38) * S;
+  const h = (lng ? 45 : 20) * S;
+  const cols = lng ? 2 : 4;
+  const rows = lng ? 1 : 3;
+  for (let i = 0; i < cols; i++) {
+    for (let j = 0; j < rows; j++) {
+      const x = manifoldX - 1.0 * L + i * (2 * r + 30 * S);
+      const z = shoreZ + 90 * S + j * (2 * r + 30 * S);
+      tanks.push(cyl(r, h, x, quayTop + h / 2, z, 'y', 28));
+      if (!lng) tanks.push(cyl(r * 0.96, 0.6 * S, x, quayTop + h * (0.55 + rand() * 0.4), z, 'y', 24)); // floating roof
+      else tanks.push(new THREE.SphereGeometry(r, 20, 8, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.25, 1).translate(x, quayTop + h, z));
+      tanks.push(cyl(0.5 * S, h + 4 * S, x + r, quayTop + (h + 4 * S) / 2, z, 'y', 6)); // stair tower
+      bunds.push(box(2 * r + 22 * S, 2.5 * S, 1 * S, x, quayTop + 1.25 * S, z - r - 11 * S), box(2 * r + 22 * S, 2.5 * S, 1 * S, x, quayTop + 1.25 * S, z + r + 11 * S));
+      bunds.push(box(1 * S, 2.5 * S, 2 * r + 22 * S, x - r - 11 * S, quayTop + 1.25 * S, z), box(1 * S, 2.5 * S, 2 * r + 22 * S, x + r + 11 * S, quayTop + 1.25 * S, z));
+    }
+  }
+  group.add(createHologramObject(merge(tanks), { name: 'tank-farm', ...PORT_STYLE.steel }));
+  group.add(createHologramObject(merge(bunds), { name: 'bund', ...PORT_STYLE.land }));
+
+  // Fire-water tank, control building, sub-station
+  group.add(createHologramObject(merge([
+    cyl(14 * S, 16 * S, manifoldX + 0.9 * L, quayTop + 8 * S, shoreZ + 60 * S, 'y', 20),
+    box(40 * S, 10 * S, 24 * S, manifoldX + 0.6 * L, quayTop + 5 * S, shoreZ + 40 * S),
+    box(22 * S, 8 * S, 16 * S, manifoldX + 1.15 * L, quayTop + 4 * S, shoreZ + 110 * S)
+  ]), { name: 'port-buildings', ...PORT_STYLE.building }));
+  return { group };
+}
+
+/* ------------------------------------------------------------------ */
 /*  Realistic colour render (reversible material swap)                 */
 /* ------------------------------------------------------------------ */
 const HULL_LIVERY = { container: '#1c3d6e', vlcc: '#24282e', chemical: '#7a1f2b', bulk: '#2c3036', lng: '#1d3557', roro: '#dfe3e8' };
@@ -1579,11 +2054,21 @@ const KIND_MATERIAL = {
   windlass: { color: '#2f5d3a' }, mooring: { color: '#2f5d3a' }, railings: { color: '#f2f2f2' }, deckPiping: { color: '#c8ccd0', metalness: 0.4 },
   hoseCranes: { color: '#e8b10d' }, deckCranes: { color: '#e8b10d' }, domes: { color: '#c8ccd0', metalness: 0.4 },
   primaryMembrane: { color: '#c0c6cc', metalness: 0.85, roughness: 0.3 }, secondaryMembrane: { color: '#a08a5a' }, insulation: { color: '#d8c99a' },
-  compartment: { color: '#9aa3ad', opacity: 0.14 }, carDecks: { color: '#7f878f' }, tankTop: { color: '#6f777f' }
+  compartment: { color: '#9aa3ad', opacity: 0.14 }, carDecks: { color: '#7f878f' }, tankTop: { color: '#6f777f' },
+  auxBoiler: { color: '#9aa0a6', metalness: 0.5 }, purifiers: { color: '#4f8065' }, airSystem: { color: '#3e6e9e' }, ecr: { color: '#d6dbe0' },
+  erPumps: { color: '#3e6e9e' }, owsFwg: { color: '#4f8065' }, fuelTanks: { color: '#7d8590' }, steeringGear: { color: '#3e6e9e' },
+  efp: { color: '#c62828' }, bowThruster: { color: '#9aa0a6', metalness: 0.6 }, bridgeConsoles: { color: '#2a2f36', roughness: 0.4 },
+  compass: { color: '#c9ced3', metalness: 0.5 }, navLights: { color: '#f2f2f2' }, vdrCapsule: { color: '#ff6a13' }, liferafts: { color: '#f0f0f0' },
+  rescueBoat: { color: '#ff6a13', roughness: 0.4 }, emergencyGen: { color: '#d6dbe0' }, co2Room: { color: '#c62828' },
+  fireHydrants: { color: '#c62828' }, lifebuoys: { color: '#ff6a13' }, foamMonitors: { color: '#c62828' }, waterSpray: { color: '#c62828' },
+  emergencyTowing: { color: '#e8b10d' }
 };
 const INFRA_MATERIAL = {
   'sts-frame': { color: '#1f6fb5' }, 'sts-trolley': { color: '#e8e8e8' }, 'sts-spreader': { color: '#e8b10d' },
   quay: { color: '#8c8f93', roughness: 0.9 }, jetty: { color: '#8c8f93', roughness: 0.9 }, trestle: { color: '#8c8f93', roughness: 0.9 },
+  land: { color: '#8a8d91', roughness: 0.95 }, rtg: { color: '#e8b10d' }, 'light-masts': { color: '#b0b6bc', metalness: 0.5 },
+  'port-buildings': { color: '#c9ced3', roughness: 0.85 }, truck: { color: '#c62828' }, 'tank-farm': { color: '#e3e6e9', metalness: 0.3 },
+  'pipe-rack': { color: '#9aa0a6', metalness: 0.5 }, bund: { color: '#7d8187', roughness: 0.95 }, feeder: { color: '#1f5aa6' },
   'arm-riser': { color: '#d0d4d8', metalness: 0.5 }, 'arm-inboard': { color: '#d0d4d8', metalness: 0.5 }, 'arm-outboard': { color: '#d0d4d8', metalness: 0.5 }, 'arm-coupler': { color: '#e8b10d' }
 };
 
@@ -1642,7 +2127,10 @@ function realMaterialFor(fill, opts) {
     } else if (KIND_MATERIAL[kind]) spec = KIND_MATERIAL[kind];
   } else {
     const name = group?.name ?? '';
-    if (INFRA_MATERIAL[name]) spec = INFRA_MATERIAL[name];
+    if (name === 'yard-stacks') {
+      containerColors(fill.geometry, group.uuid);
+      spec = { color: '#ffffff', vertexColors: true, roughness: 0.75 };
+    } else if (INFRA_MATERIAL[name]) spec = INFRA_MATERIAL[name];
     else if (name === 'yard' || name === 'placed' || name === 'sts-load') spec = { color: hashColor(group.uuid, CONTAINER_PALETTE), roughness: 0.75 };
   }
   const m = new THREE.MeshStandardMaterial({

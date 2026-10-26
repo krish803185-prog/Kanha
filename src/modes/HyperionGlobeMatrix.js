@@ -119,6 +119,12 @@ export class HyperionGlobeMatrix {
     root.add(ocean);
     this.ocean = ocean;
 
+    // Depth-only occluder: hides coastlines, lanes, dots and ships on the far side.
+    const occluder = new THREE.Mesh(new THREE.SphereGeometry(R * 0.999, 96, 64), new THREE.MeshBasicMaterial({ colorWrite: false }));
+    occluder.renderOrder = -10;
+    occluder.raycast = () => {};
+    root.add(occluder);
+
     // Atmosphere rim
     const atmo = new THREE.Mesh(
       new THREE.SphereGeometry(R * 1.08, 64, 48),
@@ -278,10 +284,11 @@ export class HyperionGlobeMatrix {
     let n = 0;
     this.targets = [];
     for (const f of this.fleet) {
-      const count = 5 + Math.floor(rand() * 3);
+      // light traffic: one or two vessels around each hull
+      const count = rand() < 0.5 ? 1 : 2;
       for (let i = 0; i < count; i++) {
-        // Two close-quarters targets per hull guarantee live Sentinel activity.
-        const close = i < 2;
+        // the first target per hull is in close quarters so the Sentinel has work
+        const close = i === 0;
         const range = close ? 2.2 + rand() * 4.5 : 5.5 + rand() * 9;
         const brg = rand() * 360;
         const [lat, lon] = deadReckon(f.lat, f.lon, brg, range);
@@ -348,9 +355,9 @@ export class HyperionGlobeMatrix {
     scene.fog.density = 0.0;
     this.ctx.setRenderLighting('hologram');
     scene.background.set(SYSTEM_CONFIG.colors.void);
-    this.ctx.bloom.strength = 0.55;
-    this.ctx.bloom.radius = 0.45;
-    this.ctx.bloom.threshold = 0.2;
+    this.ctx.bloom.strength = 0.34;
+    this.ctx.bloom.radius = 0.4;
+    this.ctx.bloom.threshold = 0.28;
     controls.enabled = true;
     controls.enablePan = false;
     controls.minDistance = 6.2;
@@ -432,7 +439,9 @@ export class HyperionGlobeMatrix {
   onGesture(evt) {
     if (evt.type === GESTURES.INDEX_THUMB_PINCH && evt.phase === 'tap') {
       const objs = [...this.fleet.map((f) => f.group), ...this.targets.map((t) => t.group)];
-      const hit = this.ctx.pick(evt.ndc, objs).find((h) => h.object.userData.vesselId || h.object.userData.aisIndex !== undefined);
+      const camDir = this.ctx.camera.position.clone().normalize();
+      // only the visible hemisphere is selectable
+      const hit = this.ctx.pick(evt.ndc, objs).find((h) => (h.object.userData.vesselId || h.object.userData.aisIndex !== undefined) && h.point.clone().normalize().dot(camDir) > 0.05);
       if (!hit) return false;
       if (hit.object.userData.vesselId) this.selectVessel(hit.object.userData.vesselId);
       else this.openDossier(this.targets[hit.object.userData.aisIndex]);

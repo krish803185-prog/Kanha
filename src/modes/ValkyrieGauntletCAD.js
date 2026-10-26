@@ -21,6 +21,11 @@ import { constructVessel, applyRenderStyle, applyRealisticGhost, setModelClippin
 
 const $ = (s) => document.querySelector(s);
 const OFF = 1e6;
+// Holographic glove: drawn at 45% of the tracked hand size, lightly smoothed.
+const GLOVE_SCALE = 0.45;
+const GLOVE_SMOOTH = 0.55;
+const PALM_LOOP = [0, 1, 2, 5, 9, 13, 17, 0];
+const RING_SEG = 10;
 // Gestures that move, rotate, dissolve or explode parts — ignored in free-look.
 const FREE_LOOK_BLOCKED = new Set([GESTURES.GAUNTLET_GRAB_HOLD, GESTURES.OPEN_PALM_RELEASE, GESTURES.CLOSED_FIST_DRAG, GESTURES.TWO_HAND_PINCH_SPREAD, GESTURES.INDEX_FINGER_FLICK]);
 
@@ -186,6 +191,14 @@ export class ValkyrieGauntletCAD {
 
     // clipping planes on every part material variant (constant OFF = disabled, no recompiles)
     setModelClipping(this.model.root, this.planes);
+    // CAD shows every internal layer at once: run its hologram ~40% dimmer.
+    if (!this.model.cadDimmed) {
+      this.model.cadDimmed = true;
+      this.model.root.traverse((o) => {
+        const m = o.userData.holoMaterial ?? o.material;
+        if (m?.uniforms?.uOpacity) m.uniforms.uOpacity.value *= o.userData.holoRole === 'wire' ? 0.6 : 0.7;
+      });
+    }
     this.model.root.updateMatrixWorld(true);
     this.bounds = new THREE.Box3().setFromObject(this.model.root);
 
@@ -385,9 +398,14 @@ export class ValkyrieGauntletCAD {
     ctx.setRenderLighting(style);
     ctx.scene.background.set(real ? 0x0b1620 : 0x01060d);
     // Every internal layer is present in CAD, so bloom stays restrained.
-    ctx.bloom.strength = real ? 0.1 : 0.2;
+    ctx.bloom.strength = real ? 0.05 : 0.12;
     ctx.bloom.radius = 0.25;
     ctx.bloom.threshold = real ? 0.95 : 0.85;
+  }
+
+  /** Camera translated (keys / pad / glide gesture): inside a compartment the vantage point moves with it. */
+  onCameraMoved(delta) {
+    if (this.interior?.ready) this.interior.center.add(delta);
   }
 
   /** Free-look: lock every part so hands / mouse / touch only move the camera. */
@@ -511,74 +529,107 @@ export class ValkyrieGauntletCAD {
   _ensureGauntlet(id) {
     if (this.gauntlets.has(id)) return this.gauntlets.get(id);
     const g = new THREE.Group();
-    const jointGeo = new THREE.IcosahedronGeometry(1, 0);
-    const mat = createHologramLineMaterial({ opacity: 0.95 });
-    const joints = [];
-    for (let i = 0; i < 21; i++) {
-      const j = new THREE.LineSegments(new THREE.WireframeGeometry(jointGeo), mat);
-      j.raycast = () => {};
-      g.add(j);
-      joints.push(j);
-    }
-    const boneGeo = new THREE.BufferGeometry();
-    boneGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(HAND_BONES.length * 6), 3));
-    const bones = new THREE.LineSegments(boneGeo, mat);
-    bones.frustumCulled = false;
-    g.add(bones);
-    // armour plates along each finger (offset second bone line) for the gauntlet look
-    const plateGeo = new THREE.BufferGeometry();
-    plateGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(HAND_BONES.length * 6), 3));
-    const plates = new THREE.LineSegments(plateGeo, createHologramLineMaterial({ opacity: 0.4 }));
-    plates.frustumCulled = false;
-    g.add(plates);
-    const collider = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(1, 1)), createHologramLineMaterial({ opacity: 0.25 }));
-    g.add(collider);
-    const tipCollider = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(1, 1)), createHologramLineMaterial({ opacity: 0.35 }));
-    g.add(tipCollider);
+    g.name = `glove:${id}`;
+    // One line buffer per glove: finger-sleeve outlines, palm plate, joint & tip rings.
+    const segs = HAND_BONES.length * 2 + (PALM_LOOP.length - 1) + 21 * RING_SEG + 5 * RING_SEG + 2 * RING_SEG * 2;
+    const lineGeo = new THREE.BufferGeometry();
+    lineGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(segs * 6), 3));
+    const mat = createHologramLineMaterial({ opacity: 0.85 });
+    const lines = new THREE.LineSegments(lineGeo, mat);
+    lines.frustumCulled = false;
+    lines.raycast = () => {};
+    g.add(lines);
+    // translucent palm plate
+    const palmGeo = new THREE.BufferGeometry();
+    palmGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array((PALM_LOOP.length - 1) * 9), 3));
+    const palmMat = new THREE.MeshBasicMaterial({ color: 0x00f3ff, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending });
+    const palm = new THREE.Mesh(palmGeo, palmMat);
+    palm.frustumCulled = false;
+    palm.raycast = () => {};
+    g.add(palm);
     this.gauntletRoot.add(g);
-    const rec = { group: g, joints, bones, plates, collider, tipCollider, mat, palm: new THREE.Vector3(), tip: new THREE.Vector3(), radius: 0.3, seen: 0 };
+    const rec = { group: g, lines, palmMesh: palm, mat, palmMat, smooth: null, palm: new THREE.Vector3(), tip: new THREE.Vector3(), radius: 0.2, seen: 0 };
     this.gauntlets.set(id, rec);
     return rec;
   }
 
   _updateGauntlets() {
+    const { camera } = this.nexus.context;
     const hands = this.nexus.context.input.getHands();
     const now = performance.now();
     const poses = {};
     for (const [id, tr] of this.nexus.context.input.classifier.tracks) poses[id] = tr.pose;
+    const view = new THREE.Vector3();
+    const tmp = new THREE.Vector3();
+    const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+    const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
     for (const hand of hands) {
       const id = hand.handedness || 'hand';
       const g = this._ensureGauntlet(id);
       g.seen = now;
       g.group.visible = true;
       const dist = this._gauntletDistance(hand);
-      const pts = hand.landmarks.map((lm) => this._landmarkWorld(lm, dist));
+      const raw = hand.landmarks.map((lm) => this._landmarkWorld(lm, dist));
+      // shrink about the palm centre, then smooth out tracking jitter
+      const c = raw[0].clone().add(raw[5]).add(raw[9]).add(raw[13]).add(raw[17]).multiplyScalar(0.2);
+      const target = raw.map((p) => p.sub(c).multiplyScalar(GLOVE_SCALE).add(c));
+      if (!g.smooth || g.smooth.length !== 21 || now - g.lastSeenAt > 400) g.smooth = target.map((p) => p.clone());
+      else g.smooth.forEach((p, i) => p.lerp(target[i], GLOVE_SMOOTH));
+      g.lastSeenAt = now;
+      const pts = g.smooth;
       const scale = pts[0].distanceTo(pts[9]);
-      pts.forEach((p, i) => {
-        g.joints[i].position.copy(p);
-        g.joints[i].scale.setScalar(scale * (i % 4 === 0 ? 0.09 : 0.06));
+      const pos = g.lines.geometry.attributes.position;
+      let k = 0;
+      const seg = (a, b) => {
+        pos.setXYZ(k++, a.x, a.y, a.z);
+        pos.setXYZ(k++, b.x, b.y, b.z);
+      };
+      // finger sleeves: two parallel edges per bone, facing the camera
+      HAND_BONES.forEach(([a, b]) => {
+        const pa = pts[a];
+        const pb = pts[b];
+        view.subVectors(camera.position, pa).normalize();
+        const r = scale * (a === 0 ? 0.09 : a >= 17 || b >= 17 ? 0.055 : 0.07);
+        tmp.subVectors(pb, pa).cross(view).setLength(r);
+        seg(pa.clone().add(tmp), pb.clone().add(tmp));
+        seg(pa.clone().sub(tmp), pb.clone().sub(tmp));
       });
-      const bp = g.bones.geometry.attributes.position;
-      const pp = g.plates.geometry.attributes.position;
-      const off = new THREE.Vector3(0, scale * 0.06, 0);
-      HAND_BONES.forEach(([a, b], k) => {
-        bp.setXYZ(k * 2, pts[a].x, pts[a].y, pts[a].z);
-        bp.setXYZ(k * 2 + 1, pts[b].x, pts[b].y, pts[b].z);
-        pp.setXYZ(k * 2, pts[a].x + off.x, pts[a].y + off.y, pts[a].z + off.z);
-        pp.setXYZ(k * 2 + 1, pts[b].x + off.x, pts[b].y + off.y, pts[b].z + off.z);
-      });
-      bp.needsUpdate = true;
-      pp.needsUpdate = true;
+      // palm plate outline
+      for (let i = 0; i < PALM_LOOP.length - 1; i++) seg(pts[PALM_LOOP[i]], pts[PALM_LOOP[i + 1]]);
+      // rings: small at joints, larger at fingertips, collider rings at palm & index tip
+      const ring = (p, rad) => {
+        for (let i = 0; i < RING_SEG; i++) {
+          const a0 = (i / RING_SEG) * Math.PI * 2;
+          const a1 = ((i + 1) / RING_SEG) * Math.PI * 2;
+          seg(
+            p.clone().addScaledVector(camRight, Math.cos(a0) * rad).addScaledVector(camUp, Math.sin(a0) * rad),
+            p.clone().addScaledVector(camRight, Math.cos(a1) * rad).addScaledVector(camUp, Math.sin(a1) * rad)
+          );
+        }
+      };
+      pts.forEach((p) => ring(p, scale * 0.028));
+      [4, 8, 12, 16, 20].forEach((i) => ring(pts[i], scale * 0.075));
       g.palm.copy(pts[0]).add(pts[5]).add(pts[9]).add(pts[13]).add(pts[17]).multiplyScalar(0.2);
       g.tip.copy(pts[8]);
       g.radius = scale * 0.9;
-      g.collider.position.copy(g.palm);
-      g.collider.scale.setScalar(g.radius);
-      g.tipCollider.position.copy(g.tip);
-      g.tipCollider.scale.setScalar(scale * 0.25);
+      ring(g.palm, g.radius * 0.55);
+      ring(g.tip, scale * 0.14);
+      while (k < pos.count) pos.setXYZ(k++, g.palm.x, g.palm.y, g.palm.z);
+      pos.needsUpdate = true;
+      // palm fill (fan around the palm centre)
+      const pp = g.palmMesh.geometry.attributes.position;
+      for (let i = 0; i < PALM_LOOP.length - 1; i++) {
+        const a = pts[PALM_LOOP[i]];
+        const b = pts[PALM_LOOP[i + 1]];
+        pp.setXYZ(i * 3, g.palm.x, g.palm.y, g.palm.z);
+        pp.setXYZ(i * 3 + 1, a.x, a.y, a.z);
+        pp.setXYZ(i * 3 + 2, b.x, b.y, b.z);
+      }
+      pp.needsUpdate = true;
       const pose = poses[id];
-      const color = pose === 'claw' ? 0xffb300 : pose === 'point' ? 0x9dfcff : 0x00f3ff;
-      g.mat.uniforms.uColor.value.setHex(this.graviton.held && g.holding ? 0xffb300 : color);
+      const color = this.graviton.held && g.holding ? 0xffb300 : pose === 'claw' ? 0xffb300 : pose === 'pinch' ? 0x31ff9c : 0x00f3ff;
+      g.mat.uniforms.uColor.value.setHex(color);
+      g.palmMat.color.setHex(color);
       // roll for 3rd-axis rotation
       const roll = Math.atan2(hand.landmarks[9].y - hand.landmarks[0].y, hand.landmarks[9].x - hand.landmarks[0].x);
       g.rollDelta = g.lastRoll === undefined ? 0 : Math.atan2(Math.sin(roll - g.lastRoll), Math.cos(roll - g.lastRoll));

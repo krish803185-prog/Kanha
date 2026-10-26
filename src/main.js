@@ -126,6 +126,29 @@ const context = {
     camera.lookAt(controls.target);
   },
 
+  /**
+   * Translate the camera and its orbit target together along the camera's own
+   * axes (X right, Y up, Z forward). Amounts are fractions of the viewing
+   * distance so a step feels the same zoomed in or out.
+   */
+  moveCamera(dx, dy, dz) {
+    const scale = Math.max(camera.position.distanceTo(controls.target), 0.5);
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    const d = right.multiplyScalar(dx * scale).add(up.multiplyScalar(dy * scale)).add(fwd.multiplyScalar(dz * scale));
+    camera.position.add(d);
+    controls.target.add(d);
+    nexus.activeController?.onCameraMoved?.(d);
+  },
+
+  /** Each mode records its default view after its fly-in; this returns there. */
+  homeView: null,
+  resetView() {
+    if (!this.homeView) return;
+    nexus.flyCamera(this.homeView.position.clone(), this.homeView.target.clone(), 1.0);
+  },
+
   /** Multiply camera distance to target (factor < 1 zooms in). */
   zoomBy(factor) {
     _off.copy(camera.position).sub(controls.target);
@@ -186,6 +209,7 @@ if (import.meta.env.DEV) window.__KANHA__ = { nexus, THREE };
 /* ------------------------------------------------------------------ */
 const input = new NeuralInputBridge(nexus, viewport);
 context.input = input;
+input.bindCameraPad($('#camera-pad'));
 
 const sensorRelay = $('#sensor-relay');
 const sensorPrimary = $('#sensor-primary');
@@ -282,7 +306,11 @@ nexus.bus.on('mode:changed', ({ to }) => {
   refreshTabs();
   context.banner(MODE_LABELS[to]);
 });
-nexus.bus.on('mode:entered', refreshTabs);
+nexus.bus.on('mode:entered', () => {
+  refreshTabs();
+  // remember the mode's default framing for "Reset view"
+  context.homeView = { position: camera.position.clone(), target: controls.target.clone() };
+});
 nexus.bus.on('vessel:selected', refreshTabs);
 
 nexus.bus.on('input:escape', () => {
@@ -324,6 +352,7 @@ renderer.setAnimationLoop((timestamp) => {
   const dt = Math.min(realDt, 1 / 20);
   const t = timer.getElapsed();
   updateHologramTime(t);
+  input.update(dt);
   nexus.update(dt, t, realDt);
   if (controls.enabled) controls.update(dt);
   composer.render(dt);

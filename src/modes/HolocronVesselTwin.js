@@ -14,13 +14,14 @@ import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { MODES, SYSTEM_CONFIG, detachCSS2D, Easing } from '../core/NexusStateCore.js';
 import { GESTURES } from '../input/KineticClassifier.js';
 import { createHologramObject, createHologramLineMaterial, setHologramAlert, setHologramHighlight, HOLO_UNIFORMS } from '../shaders/AegisHologramShader.js';
-import { getVessel } from '../vessels/ArmadaCodexSchema.js';
-import { constructVessel, buildGantryCrane, buildChicksanArm, applyRenderStyle, updateRealisticEffects } from '../vessels/ForgeShipConstructor.js';
+import { getVessel, seededRandom } from '../vessels/ArmadaCodexSchema.js';
+import { constructVessel, buildGantryCrane, buildChicksanArm, buildContainerTerminal, buildLiquidTerminal, applyRenderStyle, updateRealisticEffects } from '../vessels/ForgeShipConstructor.js';
 import { OmniChronicleTelemetry } from '../simulation/OmniChronicleTelemetry.js';
 import { AetherHydroSculptor } from '../simulation/AetherHydroSculptor.js';
 import { ChronosVDRLedger, formatAgo } from '../simulation/ChronosVDRLedger.js';
 
 const DURATION_OF = (ledger) => ledger.scenario.duration;
+const v_inPort = (v) => v.status === 'LOADING' || v.status === 'DISCHARGING';
 
 const $ = (s) => document.querySelector(s);
 const fmt = (n, d = 1) => Number(n).toFixed(d);
@@ -174,7 +175,15 @@ export class HolocronVesselTwin {
 
     const speed = $('#ae-speed');
     const depth = $('#ae-depth');
-    speed.addEventListener('input', () => this.aether?.setSpeed(Number(speed.value)));
+    speed.addEventListener('input', () => this._requestSpeed(Number(speed.value)));
+    $('#ae-castoff').addEventListener('click', () => this.setMoored(!this.aether?.moored));
+    window.addEventListener('keydown', (e) => {
+      if (this.nexus.mode !== MODES.TWIN || !this.aether || ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target?.tagName) && e.target.type !== 'range') return;
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        this._requestSpeed(this.aether.speedKn + (e.key === 'ArrowUp' ? 1 : -1));
+      }
+    });
     depth.addEventListener('input', () => this.aether?.setDepth(Number(depth.value)));
     $('#ae-squall-stbd').addEventListener('click', () => this._squall(1));
     $('#ae-squall-port').addEventListener('click', () => this._squall(-1));
@@ -214,6 +223,31 @@ export class HolocronVesselTwin {
       if (this.nexus.mode !== MODES.TWIN) return;
       if (!this.omni.back()) this.nexus.setMode(MODES.GLOBE);
     });
+  }
+
+  /** Speed change from slider / keys; refused (with guidance) while moored. */
+  _requestSpeed(kn) {
+    if (!this.aether) return;
+    if (!this.aether.setSpeed(kn)) {
+      this.nexus.context.toast('MOORED ALONGSIDE // press "Cast Off · Get Underway" first, then raise speed with the slider or ↑ / ↓', 'amber');
+    }
+    $('#ae-speed').value = String(this.aether.speedKn);
+  }
+
+  /** Make fast alongside (true) or cast off and get underway (false). */
+  setMoored(on) {
+    const a = this.aether;
+    if (!a) return;
+    const atBerth = this.cranes.length > 0 || this.arms.length > 0;
+    a.setMoored(on);
+    for (const c of this.cranes) c.setActive(on);
+    this.armsStowed = !on;
+    if (on) {
+      this.infra.position.set(0, 0, 0);
+      this.infra.visible = true;
+    }
+    this._syncAetherUi();
+    if (atBerth || !on) this.nexus.context.toast(on ? 'MADE FAST ALONGSIDE // cargo operations resumed' : 'ALL LINES SINGLED UP & LET GO // cranes parked, loading arms disconnected — raise speed to leave the berth', on ? 'cyan' : 'amber');
   }
 
   _squall(side) {
@@ -257,13 +291,13 @@ export class HolocronVesselTwin {
     });
 
     // Water + seabed
-    this.water = createGridSurface({ size: 110, segments: 240, opacity: 0.55, grid: 1.3, wave: 0.03, radius: 28 });
+    this.water = createGridSurface({ size: v_inPort(vessel) ? 200 : 110, segments: 240, opacity: 0.55, grid: 1.3, wave: 0.03, radius: v_inPort(vessel) ? 70 : 28 });
     root.add(this.water.mesh);
     this.seabed = createGridSurface({ size: 90, segments: 2, color: 0x2a7fa0, opacity: 0.3, grid: 0.8, wave: 0, radius: 26 });
     root.add(this.seabed.mesh);
     // Sea surface for the realistic colour render (translucent so the antifouling shows below).
     this.ocean = new THREE.Mesh(
-      new THREE.CircleGeometry(40, 96).rotateX(-Math.PI / 2),
+      new THREE.CircleGeometry(v_inPort(vessel) ? 90 : 40, 96).rotateX(-Math.PI / 2),
       new THREE.MeshStandardMaterial({ color: 0x0b3a52, roughness: 0.12, metalness: 0.1, transparent: true, opacity: 0.78, depthWrite: false })
     );
     this.ocean.position.y = -0.002;
@@ -281,7 +315,10 @@ export class HolocronVesselTwin {
 
     // Port infrastructure
     this.cranes = [];
+    this.idleCranes = [];
+    this.trucks = [];
     this.arms = [];
+    this.armsStowed = false;
     this._buildPortInfrastructure(frame);
 
     // Master Report Gate
@@ -302,12 +339,15 @@ export class HolocronVesselTwin {
     this._syncAetherUi();
     this._syncChronos();
     this.setNightSky(this.nightSky);
+    $('#ae-speed').value = String(this.aether.speedKn);
 
     const { controls, camera } = ctx;
     controls.enabled = true;
     controls.enablePan = true;
     controls.minDistance = 2.5;
-    controls.maxDistance = 48;
+    const inPort = v_inPort(vessel);
+    ctx.scene.fog.density = inPort ? 0.003 : 0.008;
+    controls.maxDistance = inPort ? 95 : 48;
     controls.minPolarAngle = 0.05;
     controls.maxPolarAngle = Math.PI * 0.495;
     camera.near = 0.05;
@@ -343,19 +383,11 @@ export class HolocronVesselTwin {
     this.infra = infra;
 
     if (v.typeKey === 'container' && v.status === 'LOADING') {
-      const quayW = 60 * S;
-      const quay = createHologramObject(new THREE.BoxGeometry(L * 1.5, quayTop + 14 * S, quayW), { name: 'quay', opacity: 0.12, wireMode: 'edges', wireOpacity: 0.35 });
-      quay.position.set(0, quayTop - (quayTop + 14 * S) / 2, quayZ0 + quayW / 2);
-      infra.add(quay);
-      const rails = [];
-      for (const z of [quayZ0 + 2 * S, quayZ0 + 2 * S + 30.5 * S]) rails.push(new THREE.Vector3(-L * 0.75, quayTop + 0.002, z), new THREE.Vector3(L * 0.75, quayTop + 0.002, z));
-      infra.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(rails), createHologramLineMaterial({ opacity: 0.7 })));
-      // landside yard blocks
-      for (let i = 0; i < 6; i++) {
-        const blk = createHologramObject(new THREE.BoxGeometry(12.2 * S * 3, 2.6 * S * (2 + (i % 3)), 2.44 * S * 6), { name: 'yard', opacity: 0.3, wireMode: 'edges', volume: true });
-        blk.position.set(-L * 0.5 + i * L * 0.2, quayTop + 1.3 * S * (2 + (i % 3)), quayZ0 + 44 * S);
-        infra.add(blk);
-      }
+      // the whole terminal: quay, idle cranes, stacked yard, RTGs, gate, trucks
+      const port = buildContainerTerminal({ S, L, quayTop, quayZ0, containerDims: this.model.anchors.containerDims, rand: seededRandom(v.telemetryBase.seed) });
+      infra.add(port.group);
+      this.trucks = port.trucks;
+      this.idleCranes = port.idleCranes;
 
       // pick up to 3 low-stacked bays for crane cycles
       const slots = this.model.anchors.baySlots.filter((s) => s.tiers <= 2);
@@ -388,13 +420,9 @@ export class HolocronVesselTwin {
     if ((v.typeKey === 'vlcc' || v.typeKey === 'chemical' || v.typeKey === 'lng') && (v.status === 'LOADING' || v.status === 'DISCHARGING')) {
       const m = this.model.anchors.manifold;
       const jettyZ = quayZ0 + 9 * S;
-      const jetty = createHologramObject(new THREE.BoxGeometry(46 * S, quayTop + 10 * S, 16 * S), { name: 'jetty', opacity: 0.15, wireMode: 'edges', wireOpacity: 0.45 });
-      jetty.position.set(m.x, quayTop - (quayTop + 10 * S) / 2, jettyZ);
-      infra.add(jetty);
-      // catwalk to shore
-      const walk = createHologramObject(new THREE.BoxGeometry(4 * S, 1 * S, 80 * S), { name: 'trestle', opacity: 0.2, wireMode: 'edges' });
-      walk.position.set(m.x, quayTop, jettyZ + 48 * S);
-      infra.add(walk);
+      // jetty head, trestle, pipe rack and the tank farm behind it
+      const port = buildLiquidTerminal({ S, L, quayTop, jettyZ, manifoldX: m.x, lng: v.typeKey === 'lng', rand: seededRandom(v.telemetryBase.seed) });
+      infra.add(port.group);
       for (let i = -1; i <= 1; i++) {
         const arm = buildChicksanArm({ S });
         arm.group.position.set(m.x + i * 4.5 * S, quayTop, jettyZ - 3 * S);
@@ -546,13 +574,13 @@ export class HolocronVesselTwin {
     this.water.uniforms.uOpacity.value = real ? 0.18 : this.nightSky ? 0.35 : 0.55;
     this.seabed.mesh.visible = !real;
     if (real) {
-      ctx.bloom.strength = 0.12;
+      ctx.bloom.strength = 0.06;
       ctx.bloom.radius = 0.2;
-      ctx.bloom.threshold = 0.95;
+      ctx.bloom.threshold = 0.97;
     } else {
-      ctx.bloom.strength = 0.32;
-      ctx.bloom.radius = 0.3;
-      ctx.bloom.threshold = 0.75;
+      ctx.bloom.strength = 0.18;
+      ctx.bloom.radius = 0.25;
+      ctx.bloom.threshold = 0.82;
     }
     if (!this.nightSky) ctx.scene.background.set(real ? 0x0b1620 : SYSTEM_CONFIG.colors.void);
   }
@@ -647,7 +675,15 @@ export class HolocronVesselTwin {
     const a = this.aether;
     const speed = $('#ae-speed');
     const depth = $('#ae-depth');
+    speed.max = String(Math.min(22, this.vessel.serviceSpeedKn + 2));
     speed.value = String(a.speedKn);
+    speed.closest('.slider').classList.toggle('is-locked', a.moored);
+    const portCall = this.vessel.status === 'LOADING' || this.vessel.status === 'DISCHARGING';
+    $('#ae-berth-row').style.display = portCall ? '' : 'none';
+    const st = $('#ae-berth-state');
+    st.textContent = a.moored ? 'MOORED ALONGSIDE' : 'UNDERWAY · LEAVING BERTH';
+    st.classList.toggle('is-underway', !a.moored);
+    $('#ae-castoff').textContent = a.moored ? 'Cast Off · Get Underway' : 'Re-berth · Make Fast';
     depth.max = String(a.maxDepth);
     depth.min = String(Math.floor(a.T * 0.96));
     depth.value = String(a.depthM);
@@ -661,7 +697,8 @@ export class HolocronVesselTwin {
     const rows = [
       ['UKC', s.grounded ? 'GROUNDED' : `${fmt(s.ukcM, 2)} m`, ukcCls],
       ['SQUAT δ (Barrass)', `${fmt(s.squatM, 2)} m · ${s.trimByHead ? 'by head' : 'by stern'}`, s.squatM > 1.5 ? 'warn' : ''],
-      ['DRAFT (mean)', `${fmt(s.draftM, 2)} m`, ''],
+      ['DRAFT F / M / A', `${fmt(this.vessel.cargo.draft.fwd, 2)} / ${fmt(s.draftM, 2)} / ${fmt(this.vessel.cargo.draft.aft, 2)} m`, ''],
+      ['FREEBOARD', `${fmt(s.freeboardM, 2)} m`, s.freeboardM < 2 ? 'warn' : ''],
       ['WIND HEEL', s.windKn > 1 ? `${fmt(s.steadyHeelDeg, 2)}° to ${s.heelSide}` : '0.00°', s.steadyHeelDeg > 3 ? 'warn' : ''],
       ['LEEWAY', `${fmt(s.leewayDeg, 1)}°`, ''],
       ['CRAB ANGLE', `${fmt(s.crabDeg, 1)}°`, s.crabDeg > 10 ? 'warn' : ''],
@@ -670,6 +707,7 @@ export class HolocronVesselTwin {
       ['ROT', `${fmt(s.rotDegMin, 1)}°/min`, ''],
       ['XTE', `${fmt(s.crossTrackM, 0)} m`, Math.abs(s.crossTrackM) > 185 ? 'warn' : ''],
       ['WIND / CURRENT', `${fmt(s.windKn, 0)} kt / ${fmt(s.currentKn, 1)} kt ${s.windKn > 1 ? (s.fromSide > 0 ? 'from STBD' : 'from PORT') : ''}`, ''],
+      ['STATUS', s.moored ? 'MOORED — lines restrain heel & drift' : 'UNDERWAY', s.moored ? '' : ''],
       ['VISUAL SCALE', `heel ×${F.heel} · sinkage ×${F.sinkage} · A/P ×${F.autopilotTime} time`, '']
     ];
     $('#aether-readout').innerHTML = rows.map(([k, v, c]) => `<div class="${c}"><span>${k}</span><b>${v}</b></div>`).join('');
@@ -725,8 +763,14 @@ export class HolocronVesselTwin {
         return true;
       case GESTURES.LATERAL_ARM_SWEEP:
         if (stage !== 1) return false;
-        // sweeping toward +X pushes from the port side, and vice versa
-        this._squall(-(evt.value ?? 1));
+        {
+          // Camera-relative: a sweep pushing toward the ship's starboard side
+          // is weather coming from PORT, and vice versa.
+          const cam = this.nexus.context.camera;
+          const push = new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion).multiplyScalar(Math.sign(evt.value ?? 1) || 1);
+          const starboard = new THREE.Vector3(0, 0, 1).transformDirection(this.frame.matrixWorld);
+          this._squall(push.dot(starboard) > 0 ? -1 : 1);
+        }
         return true;
       case GESTURES.TWO_FINGER_HORIZONTAL_SCRUB:
         if (evt.phase !== 'move' || stage !== 1) return false;
@@ -762,12 +806,28 @@ export class HolocronVesselTwin {
 
     this.model.update(dt);
     for (const c of this.cranes) c.update(dt);
+    for (const c of this.idleCranes) c.update(dt);
+    for (const tr of this.trucks) {
+      tr.obj.position.x += tr.dir * tr.speed * dt * 4;
+      if (tr.obj.position.x > tr.x1) tr.obj.position.x = tr.x0;
+      if (tr.obj.position.x < tr.x0) tr.obj.position.x = tr.x1;
+    }
     if (this.nexus.flags.renderStyle === 'realistic') updateRealisticEffects(this.model.root, t);
-    for (const { arm, offsetX, phase } of this.arms) {
+    for (const a of this.arms) {
       const m = this.model.anchors.manifold;
-      const heave = this.motion.position.y + Math.sin(t * 0.7 + phase) * 0.004;
-      const target = new THREE.Vector3(m.x + offsetX, m.y - this.Tm + heave, m.z).sub(arm.group.position);
-      arm.setTarget(target);
+      const heave = this.motion.position.y + Math.sin(t * 0.7 + a.phase) * 0.004;
+      // connected: coupler on the manifold flange; stowed: arm folded up over the jetty
+      const goal = this.armsStowed
+        ? new THREE.Vector3(0, a.arm.reach * 0.8, a.arm.reach * 0.12)
+        : new THREE.Vector3(m.x + a.offsetX, m.y - this.Tm + heave, m.z).sub(a.arm.group.position);
+      a.current ??= goal.clone();
+      a.current.lerp(goal, 1 - Math.exp(-dt * 1.2));
+      a.arm.setTarget(a.current);
+    }
+    // Underway out of a port: relative motion — the berth slides astern (10× time).
+    if (!s.moored && s.speedKn > 0 && this.infra.visible) {
+      this.infra.position.x -= s.speedKn * 0.514444 * S * dt * 10;
+      if (this.infra.position.x < -this.model.dims.L * 6) this.infra.visible = false;
     }
 
     this._readoutT += dt;

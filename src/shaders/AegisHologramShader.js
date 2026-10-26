@@ -78,8 +78,8 @@ const FILL_FRAGMENT = /* glsl */ `
     vec3 rim = mix(uColor, uAlertColor, clamp(pulse + uAlert * 0.35, 0.0, 1.0));
     vec3 base = mix(uBase, uAlertColor * 0.35, uAlert * 0.6);
 
-    vec3 col = base + rim * (fresnel * 0.95 + scan * 0.32 + sweep * 0.28 + uHighlight * 0.45);
-    float alpha = uOpacity * (0.22 + fresnel * 0.55 + scan * 0.14 + uHighlight * 0.25 + pulse * 0.25);
+    vec3 col = base + rim * (fresnel * 0.78 + scan * 0.22 + sweep * 0.18 + uHighlight * 0.45);
+    float alpha = uOpacity * (0.2 + fresnel * 0.42 + scan * 0.1 + uHighlight * 0.25 + pulse * 0.25);
     alpha *= uGhost;
     if (alpha < 0.004) discard;
     gl_FragColor = vec4(col, clamp(alpha, 0.0, 1.0));
@@ -115,7 +115,7 @@ const LINE_FRAGMENT = /* glsl */ `
     float pulse = uAlert * (0.55 + 0.45 * sin(uTime * 6.2832 * 1.1));
     vec3 col = mix(uColor, uAlertColor, clamp(pulse + uAlert * 0.4, 0.0, 1.0));
     float flicker = 0.97 + 0.03 * sin(uTime * 37.0 + vWorldPos.x * 13.0);
-    float alpha = 0.82 * uOpacity * uGhost * flicker * (1.0 + uHighlight * 0.8 + pulse * 0.6);
+    float alpha = 0.66 * uOpacity * uGhost * flicker * (1.0 + uHighlight * 0.8 + pulse * 0.6);
     if (alpha < 0.004) discard;
     gl_FragColor = vec4(col * (1.0 + uHighlight * 0.6), clamp(alpha, 0.0, 1.0));
   }

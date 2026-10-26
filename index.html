@@ -105,6 +105,10 @@
       <span class="panel__tag">B-02</span>
       <h2>AETHER HYDRO SCULPTOR</h2>
     </div>
+    <div class="berth-row" id="ae-berth-row">
+      <span id="ae-berth-state" class="berth-state">MOORED ALONGSIDE</span>
+      <button class="btn btn--sm btn--amber" id="ae-castoff">Cast Off · Get Underway</button>
+    </div>
     <label class="slider">
       <span>Vessel speed <b id="ae-speed-v">12.0 kt</b></span>
       <input type="range" id="ae-speed" min="0" max="22" step="0.5" value="12" />
@@ -222,6 +226,20 @@
 
   <div id="free-look-badge" class="free-look-badge" data-modes="C">🔒 FREE-LOOK · PARTS LOCKED — hands &amp; mouse move the camera only (L to unlock)</div>
 
+  <!-- Camera X/Y/Z translation pad (press & hold; keys W A S D Q E, R = reset) -->
+  <div id="camera-pad" class="camera-pad" data-modes="A B C" aria-label="Camera translation">
+    <div class="camera-pad__title">CAMERA · X Y Z</div>
+    <div class="camera-pad__grid">
+      <button class="camera-pad__btn" data-cam="q" title="Down (Q)">Q<br><small>DOWN</small></button>
+      <button class="camera-pad__btn" data-cam="w" title="Forward (W)">W<br><small>FWD</small></button>
+      <button class="camera-pad__btn" data-cam="e" title="Up (E)">E<br><small>UP</small></button>
+      <button class="camera-pad__btn" data-cam="a" title="Left (A)">A<br><small>LEFT</small></button>
+      <button class="camera-pad__btn" data-cam="s" title="Back (S)">S<br><small>BACK</small></button>
+      <button class="camera-pad__btn" data-cam="d" title="Right (D)">D<br><small>RIGHT</small></button>
+    </div>
+    <button class="camera-pad__reset" data-cam-reset title="Reset view (R)">⟲ Reset view</button>
+  </div>
+
   <!-- =========================== GLOBAL =============================== -->
   <div id="victory-ring" class="victory-ring" aria-hidden="true">
     <svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="26" class="victory-ring__track" /><circle cx="32" cy="32" r="26" class="victory-ring__fill" id="victory-ring-fill" /></svg>
@@ -251,6 +269,7 @@
         <tr><td>8</td><td>FLAT_PALM_PUSH_DOWN</td><td>Shoaling: raise seabed, reduce UKC, squat</td><td>P · Seabed slider</td></tr>
         <tr><td>9</td><td>LATERAL_ARM_SWEEP</td><td>4-kt cross-current + 35-kt squall</td><td>[ / ] · Squall buttons</td></tr>
         <tr><td>10</td><td>TWO_FINGER_HORIZONTAL_SCRUB</td><td>Chronos VDR scrub through the last 4 hours</td><td>Hold , / . · Timeline slider · ◆ Incident · NOW</td></tr>
+        <tr><td>11</td><td>THREE_FINGER_GLIDE</td><td>Move the camera in X / Y (hand left-right / up-down) and Z (push toward / pull away from the screen)</td><td>Hold W A S D Q E · camera pad · R = reset view · right-drag pans</td></tr>
         <tr><td>—</td><td>FREE-LOOK (Mode C)</td><td>Lock all parts; gestures / touch / mouse only move the camera</td><td>L · Free-Look button</td></tr>
         <tr><td>—</td><td>COLOUR RENDER (Modes B / C)</td><td>Switch hologram ↔ realistic colour ship render</td><td>Realistic Colour Render button</td></tr>
       </tbody>
