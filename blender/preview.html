@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>IBS bridge shell — baked lighting preview</title>
+<style>
+ html,body{margin:0;height:100%;background:#000;color:#dde;font:13px system-ui,sans-serif;overflow:hidden}
+ #ui{position:fixed;left:10px;top:10px;background:rgba(10,14,20,.78);padding:10px 12px;border-radius:8px;width:250px}
+ #ui label{display:flex;justify-content:space-between;margin-top:6px} #ui input{width:150px}
+ #ui button{margin:6px 4px 0 0} #fps{position:fixed;right:10px;top:10px;background:rgba(10,14,20,.78);padding:6px 10px;border-radius:8px}
+</style></head><body>
+<div id="ui"><b>Baked lighting mix</b>
+ <label>Daylight <input id="day" type="range" min="0" max="8" step="0.05" value="5"></label>
+ <label>Deckhead lights <input id="white" type="range" min="0" max="8" step="0.05" value="0"></label>
+ <label>Red night <input id="red" type="range" min="0" max="8" step="0.05" value="0"></label>
+ <div><button data-p="5,0,0">Day</button><button data-p="0,4,0">Night, lights on</button><button data-p="0,0,3">Red night</button></div>
+ <div><button data-c="0">Conning</button><button data-c="1">Aft stbd</button><button data-c="2">Chart room</button><button data-c="3">Port wing door</button></div>
+ <div style="margin-top:6px;opacity:.7">Drag to look around</div>
+</div><div id="fps"></div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script>
+/* Preview of the Blender-built wheelhouse shell with three additive baked lightmaps.
+   No real-time lights and no shadows: all lighting comes from the lightmaps on uv2. */
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5)); renderer.setSize(innerWidth, innerHeight);
+renderer.outputEncoding = THREE.sRGBEncoding; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 200);
+const CAMS = [[[0, 1.7, -0.4], [0, 1.5, -4.7]], [[5.5, 1.75, 2.9], [-2, 1.3, -4.6]], [[2, 1.75, -2], [-7, 1.2, 3]], [[-5, 1.7, -1.6], [-9, 1.4, -1.0]]];
+let yaw = 0, pitch = 0;
+function setCam(i) { const [p, t] = CAMS[i]; camera.position.set(...p); const d = new THREE.Vector3(...t).sub(camera.position); yaw = Math.atan2(-d.x, -d.z); pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); }
+setCam(0);
+const W = { value: new THREE.Vector3(1, 0, 0) };          // weights incl. per-map intensity
+const sky = new THREE.Color(), SKY_DAY = new THREE.Color(0xbfd6ee), SKY_NIGHT = new THREE.Color(0x020308);
+const texL = new THREE.TextureLoader();
+function lm(file) { const t = texL.load(file); t.flipY = false; t.encoding = THREE.sRGBEncoding; t.anisotropy = 4; return t; }
+let INT = { day: 1, white: 0.6, red: 0.8 }, emissive = [];
+fetch('lightmaps.json').then(r => r.json()).then(j => { for (const k in j.lightmaps) INT[k] = j.lightmaps[k].intensity; }).catch(() => { }).then(() => {
+  const tDay = lm('lightmap_day.jpg'), tWhite = lm('lightmap_white.jpg'), tRed = lm('lightmap_red.jpg');
+  new THREE.GLTFLoader().load('ibs-bridge-shell.glb', g => {
+    g.scene.traverse(o => {
+      if (!o.isMesh) return; const m = o.material;
+      if (m.name === 'IBS_lightPanel' || m.name === 'IBS_exitSign') { emissive.push(m); return; }
+      if (!o.geometry.attributes.uv2) { m.userData.unlit = true; return; }
+      if (m.userData.patched) return; m.userData.patched = true;
+      m.lightMap = tDay;                                 // switches on USE_LIGHTMAP and vUv2
+      m.onBeforeCompile = sh => {
+        sh.uniforms.lmWhite = { value: tWhite }; sh.uniforms.lmRed = { value: tRed }; sh.uniforms.lmW = W;
+        sh.fragmentShader = 'uniform sampler2D lmWhite; uniform sampler2D lmRed; uniform vec3 lmW;\n' + sh.fragmentShader.replace('#include <lights_fragment_maps>', THREE.ShaderChunk.lights_fragment_maps).replace(
+          'vec3 lightMapIrradiance = lightMapTexelToLinear( lightMapTexel ).rgb * lightMapIntensity;',
+          'vec3 lightMapIrradiance = sRGBToLinear( lightMapTexel ).rgb * lmW.x + sRGBToLinear( texture2D( lmWhite, vUv2 ) ).rgb * lmW.y + sRGBToLinear( texture2D( lmRed, vUv2 ) ).rgb * lmW.z;');
+        if (sh.fragmentShader.indexOf('lmW.x') < 0) console.error('lightmap patch did not apply');
+      };
+    });
+    scene.add(g.scene); window.__ready = true;
+  }, undefined, e => console.error('GLB load failed', e));
+});
+const $ = id => document.getElementById(id);
+function apply() {
+  const a = +$('day').value, b = +$('white').value, c = +$('red').value;
+  W.value.set(a * INT.day, b * INT.white, c * INT.red);
+  sky.copy(SKY_NIGHT).lerp(SKY_DAY, Math.min(1, a / 5)); scene.background = sky;
+  for (const m of emissive) { if (m.name === 'IBS_lightPanel') { m.emissive.setRGB(1, 0.98, 0.92); m.emissiveIntensity = Math.min(1.5, b / 4 * 1.4); m.color.setScalar(0.2 + 0.5 * Math.min(1, a / 5)); } else m.emissiveIntensity = 0.8; }
+}
+for (const id of ['day', 'white', 'red']) $(id).oninput = apply;
+document.querySelectorAll('button[data-p]').forEach(b => b.onclick = () => { const p = b.dataset.p.split(','); $('day').value = p[0]; $('white').value = p[1]; $('red').value = p[2]; apply(); });
+document.querySelectorAll('button[data-c]').forEach(b => b.onclick = () => setCam(+b.dataset.c));
+window.__set = (a, b, c, cam) => { $('day').value = a; $('white').value = b; $('red').value = c; apply(); if (cam != null) setCam(cam); };
+let drag = null;
+renderer.domElement.onpointerdown = e => drag = [e.clientX, e.clientY];
+onpointerup = () => drag = null;
+onpointermove = e => { if (!drag) return; yaw += (e.clientX - drag[0]) * 0.004; pitch = Math.max(-1.3, Math.min(1.3, pitch + (e.clientY - drag[1]) * 0.004)); drag = [e.clientX, e.clientY]; };
+onresize = () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); };
+apply();
+let n = 0, t0 = performance.now();
+(function loop() {
+  requestAnimationFrame(loop);
+  camera.rotation.set(pitch, yaw, 0, 'YXZ'); renderer.render(scene, camera);
+  if (++n === 30) { const t = performance.now(); $('fps').textContent = Math.round(30000 / (t - t0)) + ' fps · ' + renderer.info.render.calls + ' draw calls · ' + renderer.info.render.triangles + ' tris'; n = 0; t0 = t; }
+})();
+</script></body></html>

@@ -1,0 +1,17 @@
+{
+ "note": "final = albedo * (a*day*I_day + b*white*I_white + c*red*I_red); textures are sRGB-encoded, flipY=false, on uv2 (TEXCOORD_1). The day map clips sky-lit exterior faces (>0.5): light the exterior with the simulator's own sun.",
+ "lightmaps": {
+  "day": {
+   "file": "lightmap_day.jpg",
+   "intensity": 0.5
+  },
+  "white": {
+   "file": "lightmap_white.jpg",
+   "intensity": 0.6
+  },
+  "red": {
+   "file": "lightmap_red.jpg",
+   "intensity": 0.8
+  }
+ }
+}
