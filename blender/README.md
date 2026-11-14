@@ -6,13 +6,13 @@ post-processing. Not yet wired into the simulator.
 
 | File | What it is |
 |---|---|
-| `ibs-bridge-shell.glb` | The shell: 18 objects, 13,482 triangles, 59 draw calls, 20 embedded textures (2.2 MB). Same coordinates as the simulator (x starboard, y up, z aft, metres). |
+| `ibs-bridge-shell.glb` | The shell: 18 objects, 13,482 triangles, 59 draw calls, 23 embedded textures (2.4 MB). Same coordinates as the simulator (x starboard, y up, z aft, metres). |
 | `lightmap_day.jpg`, `lightmap_white.jpg`, `lightmap_red.jpg` | 2048 x 2048 lightmaps on the second UV set (`uv2`). |
 | `lightmaps.json` | Intensity factor for each lightmap. |
 | `preview.html` | three.js r128 page: lighting sliders, reflections, bloom, anti-aliasing, tone mapping, sky and sea stand-ins, walk with W A S D. Serve it over http (GitHub Pages or `python -m http.server`); it does not work opened as a file. |
 | `tex/water_nrm.jpg` | Sea ripple normal map used by the preview only. |
-| `IBS-Bridge-v2.blend` | Blender source file. |
-| `pipeline.py` | Runs the whole build: `rebuild()`, `bake_all()`, `finish()`. |
+| `IBS-Bridge-v3.blend` | Blender source file. |
+| `pipeline.py` | Runs the whole build: `rebuild()`, `bake_all()`, `finish()`. `retexture()` then `finish(process=False)` changes materials without re-baking. |
 | `build_bridge.py`, `textures.py`, `bake_lightmaps.py`, `process_lightmaps.py` | Geometry, procedural textures, lightmap bake, denoise and encode. |
 
 ## Lighting
@@ -31,9 +31,12 @@ re-captured only when the lighting mix changes (about 10 ms on the target laptop
 ## Materials
 
 All textures are generated procedurally by `textures.py` (tileable noise, no downloaded assets):
-deck vinyl, bulkhead panels with seams, perforated deckhead tiles, console powder coat, desk laminate,
-fabric, wood and brushed steel. Each has roughness and normal maps; deck, bulkheads, deckhead and wood
-also have colour maps.
+deck vinyl, bulkhead panels with seams, perforated deckhead tiles, gunmetal console sheet, desk laminate,
+pebbled leather (seats), curtain fabric, brushed metal (chart table and shelf) and brushed steel fittings.
+Each has roughness and normal maps; deck, bulkheads, deckhead, leather and brushed metal also have colour maps.
+
+The console and table metals use a metallic value of 0.55 to 0.6 rather than 1.0. A fully metallic surface
+takes no light from the lightmaps and turns black in dim corners such as the curtained chart room.
 
 ## Measured performance
 
@@ -46,6 +49,9 @@ to complete with `readPixels`:
 | Night, deckhead lights, bloom + anti-aliasing | 8.3 ms | 120 |
 | Red night, bloom + anti-aliasing | 7.5 ms | 133 |
 | Day, no post-processing | 6.0 ms | 166 |
+
+Re-measured after the leather and metal materials were added: 7.6 ms by day and 7.2 ms at night, within
+the run-to-run spread of the figures above.
 
 This is the shell alone, measured with the browser pane hidden. The simulator's equipment, screens and
 ship-motion code will add to it. 30 fps allows 33 ms per frame, so about 24 ms remains for the rest.

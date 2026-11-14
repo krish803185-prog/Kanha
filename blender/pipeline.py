@@ -24,12 +24,16 @@ def rebuild():
     bpy.ops.object.mode_set(mode='OBJECT')
     bpy.ops.wm.save_mainfile()
     return {'tris': tris, 'total': sum(tris.values()), 'textured': wired}
+def retexture():
+    """regenerate textures and rewire materials only (geometry and lightmaps untouched)"""
+    T = _mod('textures.py'); out = os.path.join(ROOT, 'export', 'tex'); S = T['generate'](out); wired = T['wire'](out, S)
+    bpy.ops.wm.save_mainfile(); return wired
 def bake_all(res=2048, samples=96):
     K = _mod('bake_lightmaps.py'); t = {}
     for name in ('white', 'red', 'day'): t[name] = K['bake'](name, res, samples)
     open(os.path.join(ROOT, 'bake', 'done.txt'), 'w').write(repr(t)); bpy.ops.wm.save_mainfile(); return t
-def finish():
-    info = _mod('process_lightmaps.py')['run']()
+def finish(process=True):
+    info = _mod('process_lightmaps.py')['run']() if process else None
     em = bpy.data.materials['IBS_lightPanel']; nt = em.node_tree; b = nt.nodes['Principled BSDF']
     for l in list(b.inputs['Emission Strength'].links): nt.links.remove(l)
     b.inputs['Emission Strength'].default_value = 1.0
