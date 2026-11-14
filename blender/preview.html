@@ -1,80 +1,194 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>IBS bridge shell — baked lighting preview</title>
+<html lang="en"><head><meta charset="utf-8"><title>IBS bridge shell — graphics preview</title>
 <style>
  html,body{margin:0;height:100%;background:#000;color:#dde;font:13px system-ui,sans-serif;overflow:hidden}
- #ui{position:fixed;left:10px;top:10px;background:rgba(10,14,20,.78);padding:10px 12px;border-radius:8px;width:250px}
- #ui label{display:flex;justify-content:space-between;margin-top:6px} #ui input{width:150px}
- #ui button{margin:6px 4px 0 0} #fps{position:fixed;right:10px;top:10px;background:rgba(10,14,20,.78);padding:6px 10px;border-radius:8px}
+ #ui{position:fixed;left:10px;top:10px;background:rgba(10,14,20,.78);padding:10px 12px;border-radius:8px;width:262px;user-select:none}
+ #ui label{display:flex;justify-content:space-between;align-items:center;margin-top:6px} #ui input[type=range]{width:150px}
+ #ui button{margin:6px 4px 0 0} #hud{position:fixed;right:10px;top:10px;background:rgba(10,14,20,.78);padding:6px 10px;border-radius:8px;text-align:right}
+ .row{margin-top:6px}
 </style></head><body>
-<div id="ui"><b>Baked lighting mix</b>
+<div id="ui"><b>Lighting mix (baked)</b>
  <label>Daylight <input id="day" type="range" min="0" max="8" step="0.05" value="5"></label>
  <label>Deckhead lights <input id="white" type="range" min="0" max="8" step="0.05" value="0"></label>
  <label>Red night <input id="red" type="range" min="0" max="8" step="0.05" value="0"></label>
- <div><button data-p="5,0,0">Day</button><button data-p="0,4,0">Night, lights on</button><button data-p="0,0,3">Red night</button></div>
- <div><button data-c="0">Conning</button><button data-c="1">Aft stbd</button><button data-c="2">Chart room</button><button data-c="3">Port wing door</button></div>
- <div style="margin-top:6px;opacity:.7">Drag to look around</div>
-</div><div id="fps"></div>
+ <div><button data-p="5,0,0">Day</button><button data-p="5,3,0">Day + lights</button><button data-p="0.02,4,0">Night, lights on</button><button data-p="0.02,0,3">Red night</button></div>
+ <div><button data-c="0">Conning</button><button data-c="1">Aft stbd</button><button data-c="2">Chart room</button><button data-c="3">Port door</button></div>
+ <div class="row"><label><span><input id="bloom" type="checkbox" checked> Bloom</span><span><input id="fxaa" type="checkbox" checked> Anti-aliasing</span></label>
+ <label><span><input id="refl" type="checkbox" checked> Reflections</span><span><input id="auto" type="checkbox" checked> Hold 30 fps</span></label></div>
+ <div class="row" style="opacity:.7">Drag to look · W A S D to walk</div>
+</div><div id="hud"></div>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/FXAAShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
 <script>
-/* Preview of the Blender-built wheelhouse shell with three additive baked lightmaps.
-   No real-time lights and no shadows: all lighting comes from the lightmaps on uv2. */
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5)); renderer.setSize(innerWidth, innerHeight);
-renderer.outputEncoding = THREE.sRGBEncoding; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
+/* Wheelhouse shell built in Blender, shown with three.js r128.
+   Lighting: three additive baked lightmaps on uv2 (no real-time lights, no shadow maps).
+   Reflections: the room is captured into a cube map whenever the lighting mix changes.
+   Post: HDR render -> bloom -> ACES tone map + vignette -> FXAA. Resolution adapts to hold 30 fps. */
+const $ = id => document.getElementById(id);
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+const MAXPR = Math.min(window.devicePixelRatio || 1, 1.5); let pr = Math.min(MAXPR, 1.25);
+renderer.setPixelRatio(pr); renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.NoToneMapping; renderer.outputEncoding = THREE.LinearEncoding;
 document.body.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 200);
+const camera = new THREE.PerspectiveCamera(68, innerWidth / innerHeight, 0.05, 6000);
 const CAMS = [[[0, 1.7, -0.4], [0, 1.5, -4.7]], [[5.5, 1.75, 2.9], [-2, 1.3, -4.6]], [[2, 1.75, -2], [-7, 1.2, 3]], [[-5, 1.7, -1.6], [-9, 1.4, -1.0]]];
 let yaw = 0, pitch = 0;
 function setCam(i) { const [p, t] = CAMS[i]; camera.position.set(...p); const d = new THREE.Vector3(...t).sub(camera.position); yaw = Math.atan2(-d.x, -d.z); pitch = Math.atan2(d.y, Math.hypot(d.x, d.z)); }
 setCam(0);
-const W = { value: new THREE.Vector3(1, 0, 0) };          // weights incl. per-map intensity
-const sky = new THREE.Color(), SKY_DAY = new THREE.Color(0xbfd6ee), SKY_NIGHT = new THREE.Color(0x020308);
+
+/* ---------- sky dome and sea (stand-ins for the simulator's own world) ---------- */
+const U = { dayAmt: { value: 1 }, time: { value: 0 } };
+const sky = new THREE.Mesh(new THREE.SphereGeometry(5000, 32, 16), new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false, uniforms: U,
+  vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+  fragmentShader: `uniform float dayAmt; varying vec3 vDir;
+    void main(){ float h = clamp(vDir.y, 0.0, 1.0);
+      vec3 dayC = mix(vec3(0.80,0.86,0.92), vec3(0.42,0.58,0.80), pow(h, 0.55)) * 0.85;
+      vec3 nightC = mix(vec3(0.012,0.016,0.03), vec3(0.002,0.003,0.008), pow(h, 0.4));
+      gl_FragColor = vec4(mix(nightC, dayC, dayAmt), 1.0); }` }));
+scene.add(sky);
 const texL = new THREE.TextureLoader();
+const waterN = texL.load('tex/water_nrm.jpg'); waterN.wrapS = waterN.wrapT = THREE.RepeatWrapping;
+const sea = new THREE.Mesh(new THREE.PlaneGeometry(10000, 10000), new THREE.ShaderMaterial({
+  uniforms: { dayAmt: U.dayAmt, time: U.time, nmap: { value: waterN } },
+  vertexShader: 'varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position,1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
+  fragmentShader: `uniform float dayAmt, time; uniform sampler2D nmap; varying vec3 vW;
+    void main(){ vec3 V = normalize(cameraPosition - vW); float d = length(cameraPosition - vW);
+      vec2 uv = vW.xz;
+      vec3 n1 = texture2D(nmap, uv * 0.021 + vec2(time * 0.010, time * 0.006)).xyz * 2.0 - 1.0;
+      vec3 n2 = texture2D(nmap, uv * 0.0043 - vec2(time * 0.004, time * 0.007)).xyz * 2.0 - 1.0;
+      float fade = 1.0 / (1.0 + d * 0.004);
+      vec3 N = normalize(vec3((n1.x + n2.x) * 0.55 * fade, 1.0, (n1.y + n2.y) * 0.55 * fade));
+      float fres = 0.02 + 0.98 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
+      vec3 R = reflect(-V, N); float h = clamp(R.y, 0.0, 1.0);
+      vec3 skyDay = mix(vec3(0.80,0.86,0.92), vec3(0.42,0.58,0.80), pow(h, 0.55)) * 0.85;
+      vec3 skyNight = mix(vec3(0.012,0.016,0.03), vec3(0.002,0.003,0.008), pow(h, 0.4));
+      vec3 skyC = mix(skyNight, skyDay, dayAmt);
+      vec3 deep = mix(vec3(0.0015,0.003,0.005), vec3(0.015,0.07,0.10), dayAmt);
+      vec3 c = mix(deep, skyC, fres);
+      vec3 hor = mix(vec3(0.012,0.016,0.03), vec3(0.80,0.86,0.92) * 0.85, dayAmt);
+      gl_FragColor = vec4(mix(c, hor, smoothstep(600.0, 4500.0, d)), 1.0); }` }));
+sea.rotation.x = -Math.PI / 2; sea.position.y = -24; scene.add(sea);
+
+/* ---------- lightmaps and the shader patch ---------- */
+const W = { value: new THREE.Vector3(5, 0, 0) }, OCC = { value: 1 };
 function lm(file) { const t = texL.load(file); t.flipY = false; t.encoding = THREE.sRGBEncoding; t.anisotropy = 4; return t; }
-let INT = { day: 1, white: 0.6, red: 0.8 }, emissive = [];
+let INT = { day: 0.5, white: 0.6, red: 0.8 }, panels = [], signs = [], glass = [];
+const CHUNK = THREE.ShaderChunk.lights_fragment_maps
+  .replace('#if defined( RE_IndirectDiffuse )', 'float lmSpecOcc = 1.0;\n#if defined( RE_IndirectDiffuse )')
+  .replace('vec3 lightMapIrradiance = lightMapTexelToLinear( lightMapTexel ).rgb * lightMapIntensity;',
+    'vec3 lightMapIrradiance = sRGBToLinear( lightMapTexel ).rgb * lmW.x + sRGBToLinear( texture2D( lmWhite, vUv2 ) ).rgb * lmW.y + sRGBToLinear( texture2D( lmRed, vUv2 ) ).rgb * lmW.z;\n lmSpecOcc = clamp( dot( lightMapIrradiance, vec3( 0.3333 ) ) * lmOcc, 0.12, 1.0 );')
+  .replace(/iblIrradiance \+= getLightProbeIndirectIrradiance\([^;]*;/, '')   // diffuse light comes from the lightmaps only
+  .replace(/radiance \+= getLightProbeIndirectRadiance\(([^;]*material\.specularRoughness[^;]*);/, 'radiance += lmSpecOcc * getLightProbeIndirectRadiance($1;');
+if (CHUNK.indexOf('lmW.x') < 0 || CHUNK.indexOf('lmSpecOcc *') < 0 || CHUNK.indexOf('iblIrradiance +=') >= 0) console.error('lightmap shader patch did not apply');
 fetch('lightmaps.json').then(r => r.json()).then(j => { for (const k in j.lightmaps) INT[k] = j.lightmaps[k].intensity; }).catch(() => { }).then(() => {
   const tDay = lm('lightmap_day.jpg'), tWhite = lm('lightmap_white.jpg'), tRed = lm('lightmap_red.jpg');
   new THREE.GLTFLoader().load('ibs-bridge-shell.glb', g => {
     g.scene.traverse(o => {
       if (!o.isMesh) return; const m = o.material;
-      if (m.name === 'IBS_lightPanel' || m.name === 'IBS_exitSign') { emissive.push(m); return; }
-      if (!o.geometry.attributes.uv2) { m.userData.unlit = true; return; }
-      if (m.userData.patched) return; m.userData.patched = true;
-      m.lightMap = tDay;                                 // switches on USE_LIGHTMAP and vUv2
+      for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap']) if (m[k]) m[k].anisotropy = 4;
+      if (m.name === 'IBS_lightPanel') { panels.push(m); return; }
+      if (m.name === 'IBS_exitSign') { signs.push(m); return; }
+      if (m.name === 'IBS_glass') { m.color.set(0x9fb4be); m.metalness = 1; m.roughness = 0.03; m.opacity = 0.11; m.transparent = true; m.depthWrite = false; glass.push(o); return; }
+      if (!o.geometry.attributes.uv2 || m.userData.patched) return; m.userData.patched = true;
+      m.lightMap = tDay;                                   // switches on USE_LIGHTMAP and vUv2
       m.onBeforeCompile = sh => {
-        sh.uniforms.lmWhite = { value: tWhite }; sh.uniforms.lmRed = { value: tRed }; sh.uniforms.lmW = W;
-        sh.fragmentShader = 'uniform sampler2D lmWhite; uniform sampler2D lmRed; uniform vec3 lmW;\n' + sh.fragmentShader.replace('#include <lights_fragment_maps>', THREE.ShaderChunk.lights_fragment_maps).replace(
-          'vec3 lightMapIrradiance = lightMapTexelToLinear( lightMapTexel ).rgb * lightMapIntensity;',
-          'vec3 lightMapIrradiance = sRGBToLinear( lightMapTexel ).rgb * lmW.x + sRGBToLinear( texture2D( lmWhite, vUv2 ) ).rgb * lmW.y + sRGBToLinear( texture2D( lmRed, vUv2 ) ).rgb * lmW.z;');
-        if (sh.fragmentShader.indexOf('lmW.x') < 0) console.error('lightmap patch did not apply');
+        sh.uniforms.lmWhite = { value: tWhite }; sh.uniforms.lmRed = { value: tRed }; sh.uniforms.lmW = W; sh.uniforms.lmOcc = OCC;
+        sh.fragmentShader = 'uniform sampler2D lmWhite; uniform sampler2D lmRed; uniform vec3 lmW; uniform float lmOcc;\n' + sh.fragmentShader.replace('#include <lights_fragment_maps>', CHUNK);
       };
     });
-    scene.add(g.scene); window.__ready = true;
+    scene.add(g.scene); apply(); window.__ready = true;
   }, undefined, e => console.error('GLB load failed', e));
 });
-const $ = id => document.getElementById(id);
+
+/* ---------- reflections: capture the room into a cube map when the lighting changes ---------- */
+const cubeRT = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType, format: THREE.RGBAFormat, generateMipmaps: false, encoding: THREE.LinearEncoding });
+const cubeCam = new THREE.CubeCamera(0.1, 6000, cubeRT); cubeCam.position.set(0, 1.6, -1.2); scene.add(cubeCam);
+const pmrem = new THREE.PMREMGenerator(renderer); let envRT = null, envDirty = true, envTimer = 0;
+function captureEnv() {
+  envDirty = false;
+  if (!$('refl').checked) { scene.environment = null; return; }
+  scene.environment = null; for (const o of glass) o.visible = false;
+  cubeCam.update(renderer, scene);
+  for (const o of glass) o.visible = true;
+  const next = pmrem.fromCubemap(cubeRT.texture); if (envRT) envRT.dispose(); envRT = next; scene.environment = envRT.texture;
+}
+
+/* ---------- post-processing ---------- */
+const hdrRT = new THREE.WebGLRenderTarget(4, 4, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, format: THREE.RGBAFormat, type: THREE.HalfFloatType });
+const composer = new THREE.EffectComposer(renderer, hdrRT);
+composer.addPass(new THREE.RenderPass(scene, camera));
+const bloom = new THREE.UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.30, 0.5, 1.15); composer.addPass(bloom);
+const finalPass = new THREE.ShaderPass({
+  uniforms: { tDiffuse: { value: null }, exposure: { value: 1.0 } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float exposure; varying vec2 vUv;
+    vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14), 0.0, 1.0); }
+    void main(){ vec3 c = texture2D(tDiffuse, vUv).rgb * exposure;
+      vec2 q = vUv - 0.5; c *= 1.0 - 0.38 * dot(q, q) * 1.6;            // vignette
+      c = aces(c);
+      c = mix(c * 12.92, 1.055 * pow(c, vec3(1.0/2.4)) - 0.055, step(0.0031308, c));
+      gl_FragColor = vec4(c, 1.0); }` });
+composer.addPass(finalPass);
+const fxaa = new THREE.ShaderPass(THREE.FXAAShader); composer.addPass(fxaa);
+function resize() {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setPixelRatio(pr); renderer.setSize(innerWidth, innerHeight); composer.setPixelRatio(pr); composer.setSize(innerWidth, innerHeight);
+  fxaa.material.uniforms.resolution.value.set(1 / (innerWidth * pr), 1 / (innerHeight * pr));
+}
+resize(); onresize = resize;
+
+/* ---------- controls ---------- */
 function apply() {
   const a = +$('day').value, b = +$('white').value, c = +$('red').value;
   W.value.set(a * INT.day, b * INT.white, c * INT.red);
-  sky.copy(SKY_NIGHT).lerp(SKY_DAY, Math.min(1, a / 5)); scene.background = sky;
-  for (const m of emissive) { if (m.name === 'IBS_lightPanel') { m.emissive.setRGB(1, 0.98, 0.92); m.emissiveIntensity = Math.min(1.5, b / 4 * 1.4); m.color.setScalar(0.2 + 0.5 * Math.min(1, a / 5)); } else m.emissiveIntensity = 0.8; }
+  OCC.value = 1 / (0.4 * Math.max(0.002, a * 0.08 + b * 0.05 + c * 0.03));   // reflections fade where the baked light is under ~40% of typical
+  U.dayAmt.value = Math.min(1, a / 5);
+  finalPass.uniforms.exposure.value = 1 / Math.max(1, (a + 0.8 * b + 0.3 * c) / 5.5);   // simple eye adaptation
+  for (const m of panels) { m.emissive.setRGB(1, 0.97, 0.9); m.emissiveIntensity = b * 0.9; m.color.setScalar(0.25); }
+  for (const m of signs) { m.emissive.setRGB(0.1, 1, 0.35); m.emissiveIntensity = 1.6; }
+  bloom.enabled = $('bloom').checked; fxaa.enabled = $('fxaa').checked;
+  envDirty = true; envTimer = performance.now() + 120;
 }
 for (const id of ['day', 'white', 'red']) $(id).oninput = apply;
+for (const id of ['bloom', 'fxaa', 'refl']) $(id).onchange = apply;
 document.querySelectorAll('button[data-p]').forEach(b => b.onclick = () => { const p = b.dataset.p.split(','); $('day').value = p[0]; $('white').value = p[1]; $('red').value = p[2]; apply(); });
 document.querySelectorAll('button[data-c]').forEach(b => b.onclick = () => setCam(+b.dataset.c));
 window.__set = (a, b, c, cam) => { $('day').value = a; $('white').value = b; $('red').value = c; apply(); if (cam != null) setCam(cam); };
-let drag = null;
+let drag = null; const keys = {};
 renderer.domElement.onpointerdown = e => drag = [e.clientX, e.clientY];
 onpointerup = () => drag = null;
 onpointermove = e => { if (!drag) return; yaw += (e.clientX - drag[0]) * 0.004; pitch = Math.max(-1.3, Math.min(1.3, pitch + (e.clientY - drag[1]) * 0.004)); drag = [e.clientX, e.clientY]; };
-onresize = () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); };
-apply();
-let n = 0, t0 = performance.now();
+onkeydown = e => keys[e.code] = true; onkeyup = e => keys[e.code] = false;
+
+/* ---------- loop, fps meter, adaptive resolution ---------- */
+let last = performance.now(), acc = 0, frames = 0, cpu = 0; window.__stats = { fps: 0, pr, cpuMs: 0, calls: 0, tris: 0 };
 (function loop() {
   requestAnimationFrame(loop);
-  camera.rotation.set(pitch, yaw, 0, 'YXZ'); renderer.render(scene, camera);
-  if (++n === 30) { const t = performance.now(); $('fps').textContent = Math.round(30000 / (t - t0)) + ' fps · ' + renderer.info.render.calls + ' draw calls · ' + renderer.info.render.triangles + ' tris'; n = 0; t0 = t; }
+  const now = performance.now(), dt = Math.min(0.1, (now - last) / 1000); last = now; U.time.value += dt;
+  const f = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0), s = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+  if (f || s) { const v = 1.6 * dt; camera.position.x += (-Math.sin(yaw) * f + Math.cos(yaw) * s) * v; camera.position.z += (-Math.cos(yaw) * f - Math.sin(yaw) * s) * v;
+    camera.position.x = Math.max(-8.7, Math.min(8.7, camera.position.x)); camera.position.z = Math.max(-3.3, Math.min(3.2, camera.position.z)); }
+  camera.rotation.set(pitch, yaw, 0, 'YXZ');
+  if (envDirty && now > envTimer && window.__ready) captureEnv();
+  const t0 = performance.now(); composer.render(); cpu += performance.now() - t0;
+  acc += dt; frames++;
+  if (acc >= 1) {
+    const fps = frames / acc, st = window.__stats; st.fps = fps; st.cpuMs = cpu / frames; st.pr = pr; st.calls = renderer.info.render.calls; st.tris = renderer.info.render.triangles;
+    if ($('auto').checked && !document.hidden) {
+      if (fps < 30 && pr > 0.5) { pr = Math.max(0.5, pr * 0.85); resize(); }
+      else if (fps > 50 && pr < MAXPR) { pr = Math.min(MAXPR, pr * 1.08); resize(); }
+    }
+    $('hud').innerHTML = fps.toFixed(0) + ' fps · ' + st.cpuMs.toFixed(1) + ' ms submit<br>resolution scale ' + pr.toFixed(2) + ' · ' + Math.round(innerWidth * pr) + '×' + Math.round(innerHeight * pr);
+    acc = 0; frames = 0; cpu = 0;
+  }
 })();
 </script></body></html>

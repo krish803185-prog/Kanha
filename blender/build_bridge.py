@@ -77,15 +77,20 @@ def windowWall(W,H,holes,M,bn='Bulkheads'):
 def consoleSection(bn, x, w, z=-4.05, yaw=0):
     g = TR(x,0,z,0,yaw*D2R)
     box(bn,w,0.1,0.92,'black',0,0.05,-0.02,g)
-    box(bn,w,0.8,0.86,'con',0,0.5,-0.05,g)
+    box(bn,w,0.8,0.86,'con',0,0.5,-0.05,g,bev=0.01)
     box(bn,w-0.02,0.74,0.012,'conFascia',0,0.52,0.385,g)
     n=round(w/0.6)
     for i in range(1,n): box(bn,0.006,0.72,0.014,'black',-w/2+i*w/n,0.52,0.388,g)
     box(bn,w+0.005,0.04,0.5,'conTop',0,0.92,0.22,g,bev=0.006)
     cyl(bn,0.025,0.025,w+0.005,'conEdge',0,0.915,0.47,g,seg=10,rz=math.pi/2)
     riser = g @ TR(0,0.94,-0.03,-0.72)
-    box(bn,w,0.6,0.06,'con',0,0.3,-0.03,riser)
-    box(bn,w,0.03,0.16,'conTop',0,1.39,-0.5,g)
+    box(bn,w,0.6,0.06,'con',0,0.3,-0.03,riser,bev=0.006)
+    box(bn,w,0.03,0.16,'conTop',0,1.39,-0.5,g,bev=0.005)
+    # cupboard pulls and a vent louvre in every 0.6 m bay of the fascia
+    for i in range(n):
+        cx=-w/2+(i+0.5)*w/n
+        box(bn,0.14,0.014,0.022,'steel',cx,0.78,0.402,g,bev=0.003)
+        for k in range(4): box(bn,0.3,0.012,0.008,'black',cx,0.2+k*0.03,0.393,g,0.5)
     return g
 
 def build():
@@ -136,7 +141,7 @@ def build():
     for x in (-9,9): box('Bulkheads',0.3,3.0,0.6,'wall',x,1.5,-4.9)     # deepened 0.3 -> 0.6 to close the raked-corner gap
     # ---- the long front console as one continuous run (-6.85 .. +6.85), end plates, shelf housings
     consoleSection('Console',0,13.7)
-    for s in (-1,1): box('Console',0.05,1.0,0.95,'conEdge',s*6.875,0.5,-4.07)
+    for s in (-1,1): box('Console',0.05,1.0,0.95,'conEdge',s*6.875,0.5,-4.07,bev=0.008)
     for x in (-5.15,-2.1,2.2,5.35): box('Console',0.24,0.12,0.12,'housing_dark',x,1.465,-4.55,bev=0.008)
     # ---- steering pedestal (static body only; wheel, tiller and displays stay with the simulator)
     sc = TR(0,0,-3.0)
@@ -170,7 +175,7 @@ def build():
         _merge('Curtains',bm,'curtain',M)
     curtain(3.2,9,False,TR(-7.25,H/2+0.1,0.6)); curtain(0.45,6,True,TR(-5.4,H/2+0.1,0.6)); curtain(2.7,8,False,TR(-4.05,H/2+0.1,2.15,0,math.pi/2))
     ct = TR(-6.4,0,2.95,0,math.pi)
-    box('ChartRoom',2.1,0.92,0.95,'wood',0,0.46,0,ct); box('ChartRoom',2.12,0.08,0.92,'woodDark',0,0.04,-0.01,ct)
+    box('ChartRoom',2.1,0.92,0.95,'wood',0,0.46,0,ct,bev=0.008); box('ChartRoom',2.12,0.08,0.92,'woodDark',0,0.04,-0.01,ct)
     for i in range(6):
         y=0.16+i*0.12; box('ChartRoom',1.96,0.1,0.01,'woodLight',0,y,0.48,ct); box('ChartRoom',0.3,0.02,0.025,'steel',0,y+0.01,0.495,ct)
     box('ChartRoom',2.12,0.03,0.97,'woodDark',0,0.935,0,ct)
@@ -191,6 +196,33 @@ def build():
     # ---- GMDSS desk against the starboard bulkhead
     consoleSection('GMDSS',8.3,2.0,z=1.6,yaw=-90)
 
+def details():
+    """second-pass detail: skirting, shadow-gap cornice, deckhead grab rail, kick plates, mat, sills"""
+    SK = 'skirt'
+    def run_x(x0,x1,z,y,h,t,mat,face):   # strip along x on a wall at z; face = +1 when the room is on the +z side
+        box('Trim',x1-x0,h,t,mat,(x0+x1)/2,y,z+face*t/2)
+    def run_z(z0,z1,x,y,h,t,mat,face):   # strip along z on a wall at x; face = +1 when the room is on the +x side
+        box('Trim',t,h,z1-z0,mat,x+face*t/2,y,(z0+z1)/2)
+    for (a,b) in ((-9.02,-3.7),(-2.7,2.7),(3.7,9.02)): run_x(a,b,3.52,0.05,0.1,0.015,SK,-1)
+    for s in (-1,1):
+        for (a,b) in ((-4.62,-1.64),(-0.66,3.52)): run_z(a,b,s*9.02,0.05,0.1,0.015,SK,-s)
+        run_z(-4.62,3.52,s*9.02,2.98,0.04,0.02,'shadowGap',-s)
+    run_x(-9.02,9.02,3.52,2.98,0.04,0.02,'shadowGap',-1)
+    # deckhead grab rail athwartships behind the conning position, on drop stanchions
+    cyl('Trim',0.016,0.016,12.0,'steel',0,2.76,-1.9,seg=10,rz=math.pi/2)
+    for i in range(7):
+        x=-6+2*i; cyl('Trim',0.012,0.012,0.24,'steel',x,2.88,-1.9,seg=8); cyl('Trim',0.03,0.03,0.012,'steel',x,2.994,-1.9,seg=10)
+    # stair doors: stainless kick plates and a sign plate
+    for x in (-3.2,3.2):
+        box('Trim',0.85,0.22,0.004,'steel',x,0.14,3.473); box('Trim',0.3,0.08,0.004,'sign',x,1.7,3.473)
+    # anti-fatigue mat aft of the steering pedestal
+    box('Trim',1.3,0.01,0.9,'rubber',0,0.006,-2.15,bev=0.004)
+    # sill ledge under the side windows
+    for s in (-1,1):
+        for (a,b) in ((-4.3,-1.9),(-0.4,3.2)): run_z(a,b,s*9.02,1.38,0.03,0.06,'wall',-s)
+    # deckhead cable trunking along the after bulkhead
+    box('Trim',17.6,0.1,0.16,'ceil',0,2.95,3.42,bev=0.01)
+
 MAT = {  # name: (hex sRGB, roughness, metallic, extra)
  'wall':(0xeceeee,0.85,0,{}), 'ceil':(0xf1f2f2,0.9,0,{}), 'floor':(0x4a5052,0.82,0,{}), 'lightFrame':(0xd7dad9,0.5,0,{}),
  'grille':(0xb9bdbc,0.6,0.2,{}), 'housing':(0xe2e5e4,0.5,0,{}), 'housing_dark':(0x2a2d31,0.5,0.1,{}),
@@ -200,6 +232,7 @@ MAT = {  # name: (hex sRGB, roughness, metallic, extra)
  'door':(0xd0d4d4,0.55,0,{}), 'glass':(0xbcd3df,0.05,0.0,{'alpha':0.1,'twoside':True}), 'blind':(0x2a2f35,0.9,0,{'alpha':0.6,'twoside':True}),
  'lightPanel':(0xf6f7f2,0.6,0,{'emit':1.0}), 'exitSign':(0x2fbf62,0.6,0,{'emit':1.0}),
  'bookBlue':(0x1f3a5c,0.7,0,{}), 'bookRed':(0x8a1c1c,0.7,0,{}), 'bookGreen':(0x2f5f3f,0.7,0,{}), 'bookYellow':(0xd9b300,0.7,0,{}),
+ 'skirt':(0x3a3f44,0.5,0,{}), 'shadowGap':(0x55595c,0.8,0,{}), 'sign':(0xf2f2ee,0.5,0,{}), 'rubber':(0x15161a,0.9,0,{}),
  'bookBrown':(0x5a3e2b,0.7,0,{}), 'bookGrey':(0x6d7378,0.7,0,{}), 'bookBright':(0x2d6fd6,0.7,0,{}),
 }
 def lin(c):
