@@ -20,10 +20,10 @@ def _merge(bn, bm, mat, M):
             nf = b['bm'].faces.new([vm[v] for v in f.verts]); nf.material_index = mi
         except ValueError: pass
     bm.free()
-def box(bn,w,h,d,mat,x=0,y=0,z=0,M=I4,rx=0,ry=0,rz=0,bev=0):
+def box(bn,w,h,d,mat,x=0,y=0,z=0,M=I4,rx=0,ry=0,rz=0,bev=0,seg=1):
     bm = bmesh.new(); bmesh.ops.create_cube(bm, size=1.0)
     bmesh.ops.scale(bm, vec=(w,h,d), verts=bm.verts)
-    if bev>0: bmesh.ops.bevel(bm, geom=bm.edges[:], offset=bev, segments=1, affect='EDGES', profile=0.5)
+    if bev>0: bmesh.ops.bevel(bm, geom=bm.edges[:], offset=bev, segments=seg, affect='EDGES', profile=0.5)
     Ml = M @ TR(x,y,z,rx,ry,rz); _merge(bn,bm,mat,Ml); return Ml
 def cyl(bn,r1,r2,h,mat,x=0,y=0,z=0,M=I4,seg=12,rx=0,ry=0,rz=0):
     bm = bmesh.new()
@@ -89,7 +89,8 @@ def consoleSection(bn, x, w, z=-4.05, yaw=0):
     # cupboard pulls and a vent louvre in every 0.6 m bay of the fascia
     for i in range(n):
         cx=-w/2+(i+0.5)*w/n
-        box(bn,0.14,0.014,0.022,'steel',cx,0.78,0.402,g,bev=0.003)
+        box(bn,0.14,0.012,0.012,'steel',cx,0.78,0.413,g,bev=0.003)
+        for hx in (-0.055,0.055): box(bn,0.012,0.012,0.018,'steel',cx+hx,0.78,0.400,g)
         for k in range(4): box(bn,0.3,0.012,0.008,'black',cx,0.2+k*0.03,0.393,g,0.5)
     return g
 
@@ -153,16 +154,39 @@ def build():
     oh = TR(0,2.62,-4.25,0.5)
     box('Overhead',3.85,0.52,0.09,'con',0,0,0,oh,bev=0.006)
     for x in (-1.5,1.5): box('Overhead',0.04,0.42,0.04,'steel',x,0.42,-0.1,oh)
-    # ---- pilot chairs on floor rails
+    # ---- pilot chairs on floor rails: every part is carried by another part (no floating pieces)
     for (x,yaw) in ((2.6,-8),(-2.6,8)):
-        for s in (-0.22,0.22): box('Chairs',0.05,0.03,1.8,'steel',x+s,0.015,-2.2)
+        for s in (-0.22,0.22):
+            box('Chairs',0.05,0.03,1.8,'steel',x+s,0.015,-2.2)
+            for zz in (-3.05,-1.35): box('Chairs',0.07,0.034,0.03,'black',x+s,0.017,zz)                    # rail end stops
         ch = TR(x,0,-2.45,0,yaw*D2R)
-        box('Chairs',0.5,0.06,0.4,'steel',0,0.05,0,ch); cyl('Chairs',0.07,0.09,0.78,'steel',0,0.46,0,ch,seg=12)
-        box('Chairs',0.56,0.12,0.54,'seat',0,0.9,0,ch,bev=0.03); box('Chairs',0.54,0.72,0.12,'seat',0,1.31,0.3,ch,-0.12,bev=0.03)
-        box('Chairs',0.32,0.18,0.1,'seat',0,1.74,0.36,ch,-0.12,bev=0.025)
+        box('Chairs',0.52,0.03,0.42,'steel',0,0.045,0,ch,bev=0.006)                                        # carriage plate on the rails
+        cyl('Chairs',0.11,0.13,0.05,'chairShell',0,0.085,0,ch,seg=16)                                      # column foot
+        cyl('Chairs',0.055,0.055,0.62,'steel',0,0.42,0,ch,seg=14)                                           # column
+        for k in range(5): cyl('Chairs',0.085-0.004*k,0.085-0.004*k,0.045,'chairShell',0,0.50+0.047*k,0,ch,seg=14)   # bellows shroud
+        cyl('Chairs',0.10,0.085,0.05,'chairShell',0,0.755,0,ch,seg=16)                                     # swivel head
+        box('Chairs',0.58,0.045,0.46,'chairShell',0,0.80,0,ch,bev=0.012)                                   # seat pan (carries cushion, arms, back)
+        # seat cushion: centre pad between two raised side bolsters, rounded and split by seams
+        box('Chairs',0.36,0.10,0.50,'seat',0,0.872,0.0,ch,bev=0.03,seg=4)
+        for s in (-1,1): box('Chairs',0.105,0.125,0.50,'seat',s*0.228,0.884,0.0,ch,bev=0.035,seg=4)
+        box('Chairs',0.50,0.07,0.07,'seat',0,0.862,-0.255,ch,bev=0.03,seg=4)                               # waterfall front roll
+        # back: hard shell behind, three horizontal rolls and two side bolsters in front of it
+        bk = ch @ TR(0,0.90,0.275,0.14)
+        box('Chairs',0.50,0.80,0.035,'chairShell',0,0.40,0.045,bk,bev=0.012)
+        box('Chairs',0.20,0.16,0.14,'chairShell',0,-0.02,-0.02,bk)                                           # hinge block onto the seat pan
+        for k in range(3): box('Chairs',0.33,0.235,0.085,'seat',0,0.14+0.245*k,-0.02,bk,bev=0.03,seg=4)
+        for s in (-1,1): box('Chairs',0.10,0.74,0.11,'seat',s*0.215,0.40,-0.03,bk,bev=0.035,seg=4)
+        for s in (-0.07,0.07): cyl('Chairs',0.008,0.008,0.14,'steel',s,0.86,0.03,bk,seg=8)                  # headrest stalks
+        box('Chairs',0.30,0.17,0.10,'seat',0,0.98,0.0,bk,bev=0.04,seg=4)                                   # headrest
+        # armrests: post bolted to the seat pan, bracket, padded top
         for s in (-1,1):
-            box('Chairs',0.08,0.06,0.42,'seat',s*0.32,1.08,0,ch,bev=0.015); box('Chairs',0.07,0.012,0.16,'black',s*0.32,1.116,-0.08,ch)
-        box('Chairs',0.4,0.04,0.06,'steel',0,0.5,-0.3,ch)
+            box('Chairs',0.03,0.26,0.06,'chairShell',s*0.30,0.93,0.10,ch,bev=0.004)
+            box('Chairs',0.05,0.03,0.30,'chairShell',s*0.30,1.065,-0.02,ch,bev=0.004)
+            box('Chairs',0.075,0.045,0.34,'seat',s*0.30,1.10,-0.02,ch,bev=0.02,seg=4)
+        # footrest: collar on the column, two struts, cross bar
+        cyl('Chairs',0.075,0.075,0.04,'steel',0,0.30,0,ch,seg=14)
+        for s in (-0.05,0.05): box('Chairs',0.022,0.022,0.36,'steel',s,0.30,-0.19,ch)
+        cyl('Chairs',0.016,0.016,0.44,'steel',0,0.30,-0.37,ch,seg=10,rz=math.pi/2)
     # ---- chart room: curtain tracks, curtains, chart table, shelf with publications, lamp
     box('ChartRoom',4.8,0.03,0.05,'steel',-6.45,2.97,0.6); box('ChartRoom',0.05,0.03,2.95,'steel',-4.05,2.97,2.05)
     H=2.85
@@ -223,6 +247,66 @@ def details():
     # deckhead cable trunking along the after bulkhead
     box('Trim',17.6,0.1,0.16,'ceil',0,2.95,3.42,bev=0.01)
 
+def fittings():
+    """shell-only fittings placed where the simulator's functional equipment sits, so the code's screens and
+    controls overlap them: display chins with controls, keyboard wells, trackball units, console foot rail,
+    air-conditioning cassettes and their controller"""
+    Z0 = -4.05
+    SECX = {'P3':-5.75,'P2':-3.6,'P1':-1.6,'C':0.0,'S1':1.6,'S2':3.6,'S3':5.75}
+    def riser(k): return TR(SECX[k],0,Z0) @ TR(0,0.94,-0.03,-0.72)
+    def desk(k): return TR(SECX[k],0,Z0) @ TR(0,0.92,0.22)
+    # --- display chins: control strip under each riser display (the simulator draws the screen and its backing box)
+    DISP = [('P2',-0.2,0.74,0.4625),('P2',0.78,0.42,0.252),('P1',-0.15,0.74,0.416),('P1',0.69,0.4,0.24),
+            ('S1',0.15,0.74,0.4625),('S1',0.74,0.36,0.224),('S1',-0.6,0.39,0.30),('S2',0.2,0.74,0.4625),('S2',-0.79,0.4,0.274)]
+    for (k,sx,sw,sh) in DISP:
+        R = riser(k) @ TR(sx,0.3,0.0); w = sw+0.05; cy = -(sh/2+0.025+0.019)
+        box('Fittings2',w,0.038,0.016,'bezel',0,cy,0.008,R,bev=0.004)
+        nb = 5 if sw > 0.6 else 3
+        for i in range(nb): box('Fittings2',0.022,0.012,0.006,'btn',-w/2+0.03+i*0.034,cy,0.018,R,bev=0.002)
+        cyl('Fittings2',0.011,0.012,0.012,'steel',w/2-0.03,cy,0.022,R,seg=12,rx=math.pi/2)          # brilliance knob
+        box('Fittings2',0.008,0.004,0.004,'ledGreen',w/2-0.062,cy,0.0165,R)                           # power lamp
+    # --- keyboard wells: a low rim around each keyboard the simulator places (0.42 x 0.16 at z 0.04 on the desk)
+    KB = [('P2',-0.3),('P1',-0.2),('S1',-0.15),('S2',-0.05)]
+    for (k,xo) in KB:
+        D = desk(k) @ TR(xo,0.02,0.04)
+        for (w,d,x,z) in ((0.45,0.008,0,0.089),(0.45,0.008,0,-0.089),(0.008,0.186,0.229,0),(0.008,0.186,-0.229,0)): box('Fittings2',w,0.007,d,'bezel',x,0.0035,z,D)
+        box('Fittings2',0.40,0.014,0.045,'padRest',0,0.007,0.125,D,bev=0.006,seg=3)                    # wrist rest in front of the keys
+    # --- trackball units at the four positions where the simulator draws its trackball (desk-local x = keyboard x + 0.32,
+    #     ball centre 0.054 above the desk origin, z 0.05). The shell ball is 1 mm smaller than the simulator's
+    #     (r 0.028) so the simulator's ball covers it without z-fighting.
+    for (k,xo) in KB:
+        bxp = xo + 0.32
+        D = desk(k) @ TR(bxp,0.02,0.05)
+        box('Fittings2',0.17,0.024,0.23,'bezel',0,0.012,0.04,D,bev=0.008,seg=3)                     # housing
+        box('Fittings2',0.15,0.010,0.08,'padRest',0,0.027,0.115,D,bev=0.006,seg=3)                    # palm rest
+        cyl('Fittings2',0.037,0.040,0.008,'chairShell',0,0.028,0.0,D,seg=24)                          # ball ring
+        cyl('Fittings2',0.031,0.031,0.004,'black',0,0.0325,0.0,D,seg=24)                              # ball well
+        bm = bmesh.new(); bmesh.ops.create_uvsphere(bm, u_segments=20, v_segments=12, radius=0.027)
+        _merge('Fittings2', bm, 'ballAmber', D @ TR(0,0.034,0.0))                                       # ball (simulator's covers it)
+        for s in (-1,1): box('Fittings2',0.055,0.006,0.035,'btn',s*0.034,0.026,0.058,D,bev=0.002,seg=2) # left / right buttons
+        cyl('Fittings2',0.009,0.009,0.012,'black',0,0.029,0.058,D,seg=12,rz=math.pi/2)                 # scroll wheel between them
+        box('Fittings2',0.004,0.003,0.004,'ledGreen',0.068,0.0245,-0.055,D)
+    # --- foot rail along the console plinth on brackets
+    G = TR(0,0,Z0)
+    cyl('Fittings2',0.016,0.016,13.2,'steel',0,0.17,0.50,G,seg=10,rz=math.pi/2)
+    for i in range(12):
+        x=-6.6+1.2*i; box('Fittings2',0.02,0.02,0.11,'steel',x,0.17,0.455,G); box('Fittings2',0.06,0.06,0.006,'steel',x,0.17,0.413,G)
+    # --- air conditioning: two four-way ceiling cassettes and a wall controller on the after bulkhead
+    for (x,z) in ((-2.1,-0.1),(2.1,-0.1)):
+        A = TR(x,3.0,z)
+        box('AirCon',0.84,0.05,0.84,'acBody',0,-0.025,0,A,bev=0.012,seg=2)
+        box('AirCon',0.50,0.006,0.50,'grille',0,-0.053,0,A)
+        for i in range(9): box('AirCon',0.46,0.008,0.012,'acBody',0,-0.058,-0.2+i*0.05,A)             # intake grille bars
+        for q in range(4):                                                                             # one outlet vane per side
+            Q = A @ TR(0,0,0,0,q*math.pi/2)
+            box('AirCon',0.56,0.004,0.07,'acVane',0,-0.062,0.335,Q,-0.5)
+            box('AirCon',0.58,0.012,0.012,'black',0,-0.050,0.335,Q)
+        box('AirCon',0.03,0.004,0.012,'ledGreen',0.36,-0.052,0.36,A)
+    T = TR(4.5,1.5,3.52)
+    box('AirCon',0.13,0.13,0.022,'acBody',0,0,-0.011,T,bev=0.006,seg=2)
+    box('AirCon',0.08,0.04,0.002,'padSurface',0,0.025,-0.0235,T)
+    for i in range(3): box('AirCon',0.022,0.016,0.004,'btn',-0.03+i*0.03,-0.03,-0.024,T,bev=0.0015)
+
 MAT = {  # name: (hex sRGB, roughness, metallic, extra)
  'wall':(0xeceeee,0.85,0,{}), 'ceil':(0xf1f2f2,0.9,0,{}), 'floor':(0x4a5052,0.82,0,{}), 'lightFrame':(0xd7dad9,0.5,0,{}),
  'grille':(0xb9bdbc,0.6,0.2,{}), 'housing':(0xe2e5e4,0.5,0,{}), 'housing_dark':(0x2a2d31,0.5,0.1,{}),
@@ -233,6 +317,8 @@ MAT = {  # name: (hex sRGB, roughness, metallic, extra)
  'lightPanel':(0xf6f7f2,0.6,0,{'emit':1.0}), 'exitSign':(0x2fbf62,0.6,0,{'emit':1.0}),
  'bookBlue':(0x1f3a5c,0.7,0,{}), 'bookRed':(0x8a1c1c,0.7,0,{}), 'bookGreen':(0x2f5f3f,0.7,0,{}), 'bookYellow':(0xd9b300,0.7,0,{}),
  'skirt':(0x3a3f44,0.5,0,{}), 'shadowGap':(0x55595c,0.8,0,{}), 'sign':(0xf2f2ee,0.5,0,{}), 'rubber':(0x15161a,0.9,0,{}),
+ 'chairShell':(0x121316,0.45,0,{}), 'bezel':(0x0e0f11,0.35,0,{}), 'btn':(0x5b6068,0.5,0,{}), 'padSurface':(0x2d3036,0.22,0,{}), 'padRest':(0x18191c,0.7,0,{}),
+ 'ballAmber':(0x8a5a1a,0.15,0.3,{}), 'acBody':(0xeef0f0,0.4,0,{}), 'acVane':(0xdfe2e2,0.4,0,{}), 'ledGreen':(0x35d06a,0.5,0,{}),
  'bookBrown':(0x5a3e2b,0.7,0,{}), 'bookGrey':(0x6d7378,0.7,0,{}), 'bookBright':(0x2d6fd6,0.7,0,{}),
 }
 def lin(c):

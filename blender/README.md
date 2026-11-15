@@ -2,16 +2,16 @@
 
 Static wheelhouse geometry for the IBS Bridge Simulator, built in Blender 5.3 from the dimensions in
 `IBS-Bridge-Simulator-v5.html`, with textured materials, baked global illumination, reflections and
-post-processing. Not yet wired into the simulator.
+post-processing. Wired into `IBS-Bridge-Simulator-v6.html` (built from v5 by `tools/v6/build_v6.py`).
 
 | File | What it is |
 |---|---|
-| `ibs-bridge-shell.glb` | The shell: 18 objects, 13,482 triangles, 59 draw calls, 23 embedded textures (2.4 MB). Same coordinates as the simulator (x starboard, y up, z aft, metres). |
+| `ibs-bridge-shell.glb` | The shell: 20 objects, 32,338 triangles, 75 meshes, embedded textures (3.4 MB). Same coordinates as the simulator (x starboard, y up, z aft, metres). |
 | `lightmap_day.jpg`, `lightmap_white.jpg`, `lightmap_red.jpg` | 2048 x 2048 lightmaps on the second UV set (`uv2`). |
 | `lightmaps.json` | Intensity factor for each lightmap. |
 | `preview.html` | three.js r128 page: lighting sliders, reflections, bloom, anti-aliasing, tone mapping, sky and sea stand-ins, walk with W A S D. Serve it over http (GitHub Pages or `python -m http.server`); it does not work opened as a file. |
 | `tex/water_nrm.jpg` | Sea ripple normal map used by the preview only. |
-| `IBS-Bridge-v3.blend` | Blender source file. |
+| `IBS-Bridge-v4.blend` | Blender source file. |
 | `pipeline.py` | Runs the whole build: `rebuild()`, `bake_all()`, `finish()`. `retexture()` then `finish(process=False)` changes materials without re-baking. |
 | `build_bridge.py`, `textures.py`, `bake_lightmaps.py`, `process_lightmaps.py` | Geometry, procedural textures, lightmap bake, denoise and encode. |
 
@@ -56,6 +56,22 @@ the run-to-run spread of the figures above.
 This is the shell alone, measured with the browser pane hidden. The simulator's equipment, screens and
 ship-motion code will add to it. 30 fps allows 33 ms per frame, so about 24 ms remains for the rest.
 The preview lowers its render resolution automatically if it falls below 30 fps.
+
+## Shell-only fittings that sit under the simulator's equipment
+
+These are static parts of the shell, positioned from the coordinates in `IBS-Bridge-Simulator-v5.html` so the
+simulator's own screens and controls overlap them when the shell is swapped in:
+
+- A control strip (buttons, brilliance knob, power lamp) under every riser display: ECDIS, ECDIS repeater, radar,
+  conning, INS, machinery, alerts (CAM), bow thruster and telegraph displays.
+- A keyboard well and wrist rest under each of the four keyboards.
+- A trackpad with two buttons beside the ECDIS (S1) and the ECDIS repeater (P2), clear of the trackballs.
+- A foot rail on brackets along the console plinth.
+- Two four-way ceiling air-conditioning cassettes and a wall controller on the after bulkhead.
+
+The chairs were rebuilt: rounded leather cushions with side bolsters, a three-roll back, headrest on stalks,
+armrests on posts, a footrest ring on the column, a bellows shroud, and rail end stops. Every part is carried by
+another part.
 
 ## Not included (the simulator keeps these)
 

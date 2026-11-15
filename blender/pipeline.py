@@ -10,7 +10,7 @@ NOBAKE = {'Glass', 'Blinds', 'DeckheadLights', 'ExitSigns'}
 def _mod(name):
     ns = {}; exec(open(os.path.join(ROOT, name), encoding='utf-8').read(), ns); return ns
 def rebuild():
-    B = _mod('build_bridge.py'); B['build'](); B['details'](); tris = B['finalize']()
+    B = _mod('build_bridge.py'); B['build'](); B['details'](); B['fittings'](); tris = B['finalize']()
     T = _mod('textures.py'); out = os.path.join(ROOT, 'export', 'tex'); S = T['generate'](out); wired = T['wire'](out, S)
     objs = [o for o in bpy.data.collections['Bridge'].objects if o.name not in NOBAKE]
     for o in bpy.data.objects: o.select_set(False)
